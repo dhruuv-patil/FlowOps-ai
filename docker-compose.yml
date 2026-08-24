@@ -1,0 +1,95 @@
+# FlowOps — full local stack.
+#
+# Docker is OPTIONAL. The default local workflow runs each service on the host
+# (see README). Compose is provided for a one-command full stack:
+#
+#   cp .env.example .env
+#   docker compose up -d --build
+#
+# Services: postgres, redis, ai-service (Python), backend (Spring Boot), frontend (Next.js).
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: flowops-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-flowops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-flowops}
+      POSTGRES_DB: ${POSTGRES_DB:-flowops}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-flowops} -d ${POSTGRES_DB:-flowops}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: flowops-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: flowops-ai
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:-dev-ai-token}
+      CORS_ORIGINS: http://backend:8080
+    ports:
+      - "8100:8100"
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: flowops-backend
+    environment:
+      BACKEND_PORT: 8080
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-flowops}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-flowops}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-flowops}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      AI_SERVICE_URL: http://ai-service:8100
+      AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:-dev-ai-token}
+      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+      JWT_SECRET: ${JWT_SECRET:-change-me-dev-secret-change-me-dev-secret}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-ZGV2LTMyLWJ5dGUta2V5LWZvci1mbG93b3BzLTEyMw==}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ai-service:
+        condition: service_started
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: flowops-frontend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8080
+      NEXT_PUBLIC_APP_NAME: FlowOps
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

@@ -1,0 +1,56 @@
+# Environment
+.env
+.env.local
+.env.*.local
+
+# ── Java / Spring Boot (backend) ─────────────────────────────
+target/
+*.class
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+.mvn/timing.properties
+hs_err_pid*
+*.log
+
+# ── Node / Next.js (frontend) ────────────────────────────────
+node_modules/
+.next/
+out/
+frontend/dist/
+frontend/.vite/
+npm-debug.log*
+yarn-error.log*
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+
+# ── Python (ai-service) ──────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Docker / data
+postgres_data/
+
+# Uploads (future RAG)
+uploads/

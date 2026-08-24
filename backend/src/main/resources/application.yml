@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: flowops-api
+
+server:
+  port: ${BACKEND_PORT:8080}
+
+flowops:
+  cors:
+    # Comma-separated list of allowed frontend origins
+    allowed-origins: ${CORS_ORIGINS:http://localhost:3000,http://127.0.0.1:3000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+
+logging:
+  level:
+    root: INFO
+    com.flowops: DEBUG

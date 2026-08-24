@@ -1,0 +1,13 @@
+# FlowOps AI Service
+#
+# Recommended interpreter: Python 3.11 or 3.12 (LangGraph/LangChain wheels,
+# added in M4, are most reliable there). 3.13/3.14 may work but are not the
+# primary target.
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.1
+httpx==0.28.1
+
+# Dev / test
+pytest==8.3.4
