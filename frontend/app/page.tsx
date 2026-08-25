@@ -91,10 +91,13 @@ export default function LandingPage() {
           </nav>
           <div className="flex items-center gap-2">
             <ThemeToggle />
+            <Button asChild variant="ghost" className="hidden sm:inline-flex">
+              <Link href="/login">Log in</Link>
+            </Button>
             <Button asChild>
-              <a href="#how">
+              <Link href="/register">
                 Start Building <ArrowRight />
-              </a>
+              </Link>
             </Button>
           </div>
         </div>
@@ -127,9 +130,9 @@ export default function LandingPage() {
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Button asChild size="lg">
-                <a href="#how">
+                <Link href="/register">
                   Start Building <ArrowRight />
-                </a>
+                </Link>
               </Button>
               <Button asChild size="lg" variant="outline">
                 <a href="#features">Explore Workflows</a>
@@ -237,9 +240,9 @@ export default function LandingPage() {
             </p>
             <div className="relative mt-8">
               <Button asChild size="lg">
-                <a href="#how">
+                <Link href="/register">
                   Start Building <ArrowRight />
-                </a>
+                </Link>
               </Button>
             </div>
           </div>

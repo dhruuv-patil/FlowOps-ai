@@ -5,6 +5,8 @@ import { ThemeProvider } from "next-themes";
 import { useState } from "react";
 import { Toaster } from "sonner";
 
+import { SessionBootstrapper } from "@/components/session-bootstrapper";
+
 /**
  * Client-side app providers: theme (light/dark/system), TanStack Query,
  * and toast notifications. Mounted once at the root layout.
@@ -31,6 +33,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       disableTransitionOnChange
     >
       <QueryClientProvider client={queryClient}>
+        <SessionBootstrapper />
         {children}
         <Toaster richColors position="top-right" closeButton />
       </QueryClientProvider>

@@ -2,13 +2,69 @@ spring:
   application:
     name: flowops-api
 
+  jackson:
+    serialization:
+      # Instant -> "2026-08-24T10:15:30.123Z", never a numeric epoch. The shared
+      # TypeScript types declare every timestamp as an ISO-8601 string.
+      write-dates-as-timestamps: false
+    deserialization:
+      # Security control, not a nicety: a body smuggling "role" or
+      # "organizationId" gets 400 MALFORMED_REQUEST instead of a silent ignore.
+      fail-on-unknown-properties: true
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/flowops}
+    username: ${SPRING_DATASOURCE_USERNAME:flowops}
+    password: ${SPRING_DATASOURCE_PASSWORD:flowops}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate      # Flyway owns the schema
+    open-in-view: false
+
+  flyway:
+    enabled: true
+
 server:
   port: ${BACKEND_PORT:8080}
+  error:
+    whitelabel:
+      # The default Spring Boot error body must never reach the client; every
+      # error goes through GlobalExceptionHandler's envelope.
+      enabled: false
 
 flowops:
   cors:
     # Comma-separated list of allowed frontend origins
     allowed-origins: ${CORS_ORIGINS:http://localhost:3000,http://127.0.0.1:3000}
+
+  auth:
+    # Required. Empty default so startup fails with an actionable message from
+    # AuthProperties rather than an opaque placeholder-resolution error.
+    jwt-secret: ${JWT_SECRET:}
+    issuer: flowops
+    audience: flowops-api
+    access-token-ttl: 15m
+    refresh-token-ttl: 7d
+    bcrypt-strength: 12
+    refresh-cookie:
+      name: flowops_refresh
+      path: /api/auth
+      secure: ${REFRESH_COOKIE_SECURE:false}      # true in every non-local environment
+      same-site: ${REFRESH_COOKIE_SAME_SITE:Lax}  # None in production
+
+  execution:
+    # In-process engine defaults. Redis-backed queueing is opt-in and wired later;
+    # the in-memory queue below runs the full spine with no external dependency.
+    worker-pool-size: ${EXECUTION_WORKERS:4}
+    max-attempts: 3            # per-node attempts before an honest failure
+    retry-backoff: 2s          # exponential: 2s, 4s, 8s, ... capped below
+    max-retry-backoff: 30s
+    max-delay-seconds: 300     # a Delay node never parks a worker longer than this
+    http-connect-timeout: 5s
+    http-request-timeout: 30s
+    http-max-body-bytes: 1048576   # 1 MiB captured response body, then truncated
+    sse-timeout: 30m
 
 management:
   endpoints:
@@ -29,4 +85,6 @@ springdoc:
 logging:
   level:
     root: INFO
+    # DEBUG here must never be used to log request bodies for /api/auth/* —
+    # passwords and tokens are never logged at any level (contract §9).
     com.flowops: DEBUG
