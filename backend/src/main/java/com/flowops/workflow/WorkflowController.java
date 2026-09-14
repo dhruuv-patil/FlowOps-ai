@@ -7,6 +7,7 @@ import com.flowops.api.WorkflowVersionResponse;
 import com.flowops.domain.WorkflowStatus;
 import com.flowops.execution.ExecutionService;
 import com.flowops.execution.RunWorkflowRequest;
+import com.flowops.domain.Role;
 import com.flowops.security.AuthenticatedUser;
 import com.flowops.security.FlowOpsPrincipal;
 import com.flowops.workflow.validation.ValidationResult;
@@ -60,7 +61,7 @@ public class WorkflowController {
     @ResponseStatus(HttpStatus.CREATED)
     @Operation(summary = "Create a draft workflow")
     public WorkflowDetailResponse create(@Valid @RequestBody CreateWorkflowRequest request) {
-        return workflowService.create(AuthenticatedUser.require(), request);
+        return workflowService.create(AuthenticatedUser.requireRole(Role.MEMBER), request);
     }
 
     @GetMapping("/{workflowId}")
@@ -73,20 +74,20 @@ public class WorkflowController {
     @Operation(summary = "Rename or re-describe a workflow")
     public WorkflowDetailResponse update(
             @PathVariable UUID workflowId, @Valid @RequestBody UpdateWorkflowRequest request) {
-        return workflowService.updateMetadata(AuthenticatedUser.require(), workflowId, request);
+        return workflowService.updateMetadata(AuthenticatedUser.requireRole(Role.MEMBER), workflowId, request);
     }
 
     @PutMapping(path = "/{workflowId}/graph", consumes = MediaType.APPLICATION_JSON_VALUE)
     @Operation(summary = "Save the working (draft) graph")
     public WorkflowDetailResponse saveGraph(
             @PathVariable UUID workflowId, @Valid @RequestBody SaveGraphRequest request) {
-        return workflowService.saveDraft(AuthenticatedUser.require(), workflowId, request);
+        return workflowService.saveDraft(AuthenticatedUser.requireRole(Role.MEMBER), workflowId, request);
     }
 
     @PostMapping("/{workflowId}/validate")
     @Operation(summary = "Validate the draft graph without publishing")
     public ValidationResult validate(@PathVariable UUID workflowId) {
-        return workflowService.validate(AuthenticatedUser.require(), workflowId);
+        return workflowService.validate(AuthenticatedUser.requireRole(Role.MEMBER), workflowId);
     }
 
     @PostMapping("/{workflowId}/publish")
@@ -95,7 +96,7 @@ public class WorkflowController {
             @PathVariable UUID workflowId,
             @Valid @RequestBody(required = false) PublishWorkflowRequest request) {
         PublishWorkflowRequest body = request == null ? new PublishWorkflowRequest(null) : request;
-        return workflowService.publish(AuthenticatedUser.require(), workflowId, body);
+        return workflowService.publish(AuthenticatedUser.requireRole(Role.MEMBER), workflowId, body);
     }
 
     @PostMapping("/{workflowId}/run")
@@ -104,7 +105,7 @@ public class WorkflowController {
     public ExecutionDetailResponse run(
             @PathVariable UUID workflowId,
             @RequestBody(required = false) RunWorkflowRequest request) {
-        return executionService.run(AuthenticatedUser.require(), workflowId, request);
+        return executionService.run(AuthenticatedUser.requireRole(Role.MEMBER), workflowId, request);
     }
 
     @GetMapping("/{workflowId}/versions")
@@ -124,7 +125,7 @@ public class WorkflowController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(summary = "Delete a workflow and its versions")
     public ResponseEntity<Void> delete(@PathVariable UUID workflowId) {
-        workflowService.delete(AuthenticatedUser.require(), workflowId);
+        workflowService.delete(AuthenticatedUser.requireRole(Role.MEMBER), workflowId);
         return ResponseEntity.noContent().build();
     }
 }

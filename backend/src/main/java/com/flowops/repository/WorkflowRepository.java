@@ -18,15 +18,24 @@ public interface WorkflowRepository extends JpaRepository<Workflow, UUID> {
 
     Optional<Workflow> findByIdAndOrganizationId(UUID id, UUID organizationId);
 
+    /** Finds a workflow by exact name and organization (for external workflow mapping). */
+    Optional<Workflow> findByNameAndOrganizationId(String name, UUID organizationId);
+
     /**
      * Listing with an optional case-insensitive name search and optional status
      * filter. Nulls disable the respective clause. Archived rows are included
      * only when explicitly filtered to {@code ARCHIVED}.
+     *
+     * <p>The {@code CAST(:search AS string)} is load-bearing, not cosmetic: when
+     * {@code :search} is null Hibernate has no value to infer the type from, so
+     * PostgreSQL sees an untyped bind and resolves {@code LOWER(...)} against
+     * {@code bytea} ("function lower(bytea) does not exist"). The explicit cast
+     * pins the parameter to {@code varchar} so {@code LOWER} always type-checks.
      */
     @Query("""
             SELECT w FROM Workflow w
             WHERE w.organizationId = :organizationId
-              AND (:search IS NULL OR LOWER(w.name) LIKE LOWER(CONCAT('%', :search, '%')))
+              AND (:search IS NULL OR LOWER(w.name) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%')))
               AND (:status IS NULL OR w.status = :status)
               AND (:status IS NOT NULL OR w.status <> com.flowops.domain.WorkflowStatus.ARCHIVED)
             ORDER BY w.updatedAt DESC

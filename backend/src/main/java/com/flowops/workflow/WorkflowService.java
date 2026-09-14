@@ -13,6 +13,7 @@ import com.flowops.common.error.ErrorCode;
 import com.flowops.domain.Workflow;
 import com.flowops.domain.WorkflowStatus;
 import com.flowops.domain.WorkflowVersion;
+import com.flowops.integration.delivery.WebhookEventDispatcher;
 import com.flowops.repository.WorkflowRepository;
 import com.flowops.repository.WorkflowVersionRepository;
 import com.flowops.security.FlowOpsPrincipal;
@@ -39,16 +40,19 @@ public class WorkflowService {
     private final WorkflowVersionRepository versions;
     private final WorkflowValidator validator;
     private final ObjectMapper objectMapper;
+    private final WebhookEventDispatcher webhookEvents;
 
     public WorkflowService(
             WorkflowRepository workflows,
             WorkflowVersionRepository versions,
             WorkflowValidator validator,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            WebhookEventDispatcher webhookEvents) {
         this.workflows = workflows;
         this.versions = versions;
         this.validator = validator;
         this.objectMapper = objectMapper;
+        this.webhookEvents = webhookEvents;
     }
 
     @Transactional(readOnly = true)
@@ -124,6 +128,13 @@ public class WorkflowService {
                 principal.userId());
         versions.save(version);
         workflow.markPublished(nextVersion);
+        // Fire outbound webhooks subscribed to workflow.published
+        java.util.Map<String, Object> payload = new java.util.LinkedHashMap<>();
+        payload.put("workflowId", workflow.getId().toString());
+        payload.put("workflowName", workflow.getName());
+        payload.put("version", nextVersion);
+        webhookEvents.dispatch(principal.organizationId(),
+                WebhookEventDispatcher.Event.WORKFLOW_PUBLISHED, payload);
         return WorkflowEnvelopes.PublishResult.ok(
                 WorkflowVersionResponse.summary(version), validation);
     }
