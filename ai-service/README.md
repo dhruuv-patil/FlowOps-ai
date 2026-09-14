@@ -1,11 +1,11 @@
 # FlowOps AI Service
 
-Isolated Python service that powers FlowOps AI features via an
-**OpenAI-compatible, bring-your-own-key** interface. Only the Spring Boot
-backend calls it — never the browser.
+Isolated Python service that powers FlowOps AI features via a **Google Gemini,
+bring-your-own-key** interface. Only the Spring Boot backend calls it — never
+the browser.
 
 - **M0 (now):** `GET /health` (reports `ai_configured` without leaking the key).
-- **M4:** `POST /ai/generate-workflow` (LangGraph → workflow graph) and
+- **M4:** `POST /ai/generate-workflow` (Gemini → workflow graph) and
   `POST /ai/agent/run` (agent execution with structured output), plus an
   allowlisted tool registry.
 
@@ -25,8 +25,8 @@ Health check: `curl http://localhost:8100/health`
 
 | Variable | Purpose |
 |----------|---------|
-| `OPENAI_API_KEY` | Provider key. Empty ⇒ AI endpoints report "not configured". |
-| `OPENAI_BASE_URL` | OpenAI-compatible endpoint (OpenAI, Azure, local gateway). |
-| `OPENAI_MODEL` | Default model id. |
+| `GEMINI_API_KEY` | Google Gemini key. Empty ⇒ AI endpoints report "not configured". |
+| `GEMINI_MODEL` | Default Gemini model id (default `gemini-2.5-flash`). |
+| `AI_PROVIDER` | Active LLM provider (default `gemini`). The seam for adding others. |
 | `AI_SERVICE_TOKEN` | Shared secret the backend presents on each call. |
 | `CORS_ORIGINS` | Allowed callers (the backend origin). |

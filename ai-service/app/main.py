@@ -1,7 +1,9 @@
 """FlowOps AI service — FastAPI entry point.
 
-M0 exposes only health. M4 adds LangGraph-powered workflow generation
-(`/ai/generate-workflow`) and agent execution (`/ai/agent/run`).
+M0 exposed only health. M4 adds workflow generation (`/ai/generate-workflow`)
+and agent execution (`/ai/agent/run`), both backed by a pluggable LLM provider
+(Google Gemini by default; see `app.providers`) and bring-your-own-key: with no
+key configured they report "not configured" rather than fabricating output.
 """
 
 from datetime import datetime, timezone
@@ -10,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
+from app.routes import ai as ai_routes
 
 
 def create_app() -> FastAPI:
@@ -18,7 +21,8 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="FlowOps AI Service",
         version=settings.version,
-        description="LangGraph-powered AI workflow generation and agents for FlowOps.",
+        description="AI workflow generation and agents for FlowOps "
+        "(Google Gemini, bring-your-own-key).",
     )
 
     app.add_middleware(
@@ -39,6 +43,8 @@ def create_app() -> FastAPI:
             "ai_configured": settings.ai_configured,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+
+    app.include_router(ai_routes.router)
 
     return app
 

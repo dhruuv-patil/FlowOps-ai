@@ -1,8 +1,12 @@
 """AI service configuration.
 
-The AI service is isolated from the Spring Boot core. It exposes an
-OpenAI-compatible, bring-your-own-key interface: when no key is configured the
-AI endpoints report "not configured" rather than returning fabricated output.
+The AI service is isolated from the Spring Boot core. It exposes a
+bring-your-own-key interface: when no provider key is configured the AI
+endpoints report "not configured" rather than returning fabricated output.
+
+The active LLM provider is pluggable (see :mod:`app.providers`); Google Gemini
+is the default. The provider key is read from the environment here and never
+logged, never returned to the backend/frontend, and never persisted.
 """
 
 from functools import lru_cache
@@ -16,11 +20,21 @@ class Settings(BaseSettings):
     service_name: str = "flowops-ai"
     version: str = "0.1.0"
 
-    # OpenAI-compatible provider (bring-your-own-key). base_url lets you point at
-    # OpenAI, Azure OpenAI, a local model, or any compatible gateway.
-    openai_api_key: str = ""
-    openai_base_url: str = "https://api.openai.com/v1"
-    openai_model: str = "gpt-4o-mini"
+    # Which LLM backs the AI endpoints. Kept configurable so another provider can
+    # be added later (implement app.providers.base.LLMProvider and register it in
+    # app.providers.get_provider) without touching the routes.
+    ai_provider: str = "gemini"
+
+    # Google Gemini (bring-your-own-key). Get a key at https://aistudio.google.com/apikey.
+    # The default is a current Gemini Flash model suited to the free API tier.
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-3.6-flash"
+
+    # Per-request timeout (seconds) for provider calls.
+    provider_timeout_seconds: float = 60.0
+    # Upper bound on tool-calling rounds in /ai/agent/run, so a misbehaving model
+    # can never loop indefinitely.
+    agent_max_iterations: int = 5
 
     # Shared secret the Spring backend presents when calling this service.
     ai_service_token: str = ""
@@ -30,8 +44,10 @@ class Settings(BaseSettings):
 
     @property
     def ai_configured(self) -> bool:
-        """True when an API key is present. Never expose the key itself."""
-        return bool(self.openai_api_key.strip())
+        """True when the active provider has credentials. Never expose the key itself."""
+        if self.ai_provider.strip().lower() == "gemini":
+            return bool(self.gemini_api_key.strip())
+        return False
 
     @property
     def cors_origin_list(self) -> list[str]:
