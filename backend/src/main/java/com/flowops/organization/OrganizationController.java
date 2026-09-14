@@ -2,6 +2,7 @@ package com.flowops.organization;
 
 import com.flowops.api.AuthResponse;
 import com.flowops.api.Envelopes;
+import com.flowops.api.InvitationSecretResponse;
 import com.flowops.auth.AuthResult;
 import com.flowops.common.ratelimit.RateLimiter;
 import com.flowops.domain.Role;
@@ -16,12 +17,14 @@ import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -77,6 +80,52 @@ public class OrganizationController {
     @Operation(summary = "List members of the current organization")
     public Envelopes.Members members() {
         return organizationService.listMembers(AuthenticatedUser.require());
+    }
+
+    /** Changes a member's role; requires {@code ADMIN} or {@code OWNER}. */
+    @PatchMapping(path = "/current/members/{userId}", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "Change a member's role (ADMIN or OWNER)")
+    public Envelopes.Members changeMemberRole(
+            @PathVariable UUID userId, @Valid @RequestBody ChangeMemberRoleRequest request) {
+        FlowOpsPrincipal principal = AuthenticatedUser.requireRole(Role.ADMIN);
+        return organizationService.changeMemberRole(principal, userId, request.role());
+    }
+
+    /** Removes a member from the current org; requires {@code ADMIN} or {@code OWNER}. */
+    @DeleteMapping("/current/members/{userId}")
+    @Operation(summary = "Remove a member from the current organization (ADMIN or OWNER)")
+    public Envelopes.Members removeMember(@PathVariable UUID userId) {
+        FlowOpsPrincipal principal = AuthenticatedUser.requireRole(Role.ADMIN);
+        return organizationService.removeMember(principal, userId);
+    }
+
+    /** Pending/accepted/revoked invitations; requires {@code ADMIN} or {@code OWNER}. */
+    @GetMapping("/current/invitations")
+    @Operation(summary = "List invitations for the current organization (ADMIN or OWNER)")
+    public Envelopes.Invitations invitations() {
+        return organizationService.listInvitations(AuthenticatedUser.requireRole(Role.ADMIN));
+    }
+
+    /**
+     * Creates (or re-mints) a tokened invitation; requires {@code ADMIN} or
+     * {@code OWNER}. Returns the raw token exactly once — it is never recoverable
+     * afterwards.
+     */
+    @PostMapping(path = "/current/invitations", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    @Operation(summary = "Invite a user to the current organization (ADMIN or OWNER)")
+    public InvitationSecretResponse invite(@Valid @RequestBody InviteMemberRequest request) {
+        FlowOpsPrincipal principal = AuthenticatedUser.requireRole(Role.ADMIN);
+        return organizationService.invite(principal, request);
+    }
+
+    /** Revokes a pending invitation; requires {@code ADMIN} or {@code OWNER}. */
+    @DeleteMapping("/current/invitations/{invitationId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "Revoke an invitation (ADMIN or OWNER)")
+    public void revokeInvitation(@PathVariable UUID invitationId) {
+        FlowOpsPrincipal principal = AuthenticatedUser.requireRole(Role.ADMIN);
+        organizationService.revokeInvitation(principal, invitationId);
     }
 
     /** Creates an additional org without switching into it (contract §5.9). */

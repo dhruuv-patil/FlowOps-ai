@@ -24,6 +24,10 @@ public final class Envelopes {
     public record Members(List<OrganizationMemberResponse> members) {
     }
 
+    /** {@code GET /api/organizations/current/invitations} — masked, token-free. */
+    public record Invitations(List<InvitationResponse> invitations) {
+    }
+
     /**
      * {@code GET}/{@code PATCH /api/organizations/current} and
      * {@code POST /api/organizations}.

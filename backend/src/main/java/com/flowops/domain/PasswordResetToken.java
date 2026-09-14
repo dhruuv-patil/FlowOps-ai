@@ -9,21 +9,21 @@ import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 /**
- * One row per rotation generation of a session's refresh token.
+ * A single-use, short-lived password reset token.
  *
  * <p>Only the SHA-256 hex of the token is stored — the plaintext exists solely in
- * the HttpOnly cookie, so a database dump yields no usable refresh tokens.
+ * the email link, so a database dump yields no usable reset tokens.
  */
 @Entity
-@Table(name = "refresh_tokens")
-public class RefreshToken {
+@Table(name = "password_reset_tokens")
+public class PasswordResetToken {
 
     @Id
     @Column(name = "id", nullable = false, updatable = false)
     private UUID id;
 
-    @Column(name = "session_id", nullable = false, updatable = false)
-    private UUID sessionId;
+    @Column(name = "user_id", nullable = false, updatable = false)
+    private UUID userId;
 
     @Column(name = "token_hash", nullable = false, length = 64, updatable = false)
     private String tokenHash;
@@ -37,39 +37,29 @@ public class RefreshToken {
     @Column(name = "used_at")
     private Instant usedAt;
 
-    @Column(name = "revoked_at")
-    private Instant revokedAt;
-
-    protected RefreshToken() {
+    protected PasswordResetToken() {
         // JPA
     }
 
-    public static RefreshToken create(UUID sessionId, String tokenHash, Instant expiresAt) {
-        RefreshToken token = new RefreshToken();
+    public static PasswordResetToken create(UUID userId, String tokenHash, Instant expiresAt) {
+        PasswordResetToken token = new PasswordResetToken();
         token.id = UUID.randomUUID();
-        token.sessionId = sessionId;
+        token.userId = userId;
         token.tokenHash = tokenHash;
         token.expiresAt = expiresAt.truncatedTo(ChronoUnit.MILLIS);
         token.createdAt = Instant.now().truncatedTo(ChronoUnit.MILLIS);
         return token;
     }
 
-    /** Marks this generation spent. Presenting it again is treated as theft. */
+    /** Marks this token spent. Presenting it again is an error. */
     public void consume() {
         Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
         this.usedAt = now;
-        this.revokedAt = now;
     }
 
-    public void revoke() {
-        if (this.revokedAt == null) {
-            this.revokedAt = Instant.now().truncatedTo(ChronoUnit.MILLIS);
-        }
+    public boolean isUsed() {
+        return usedAt != null;
     }
-
-    public boolean isSpent() {
-    return usedAt != null;
-}
 
     public boolean isExpired(Instant now) {
         return !expiresAt.isAfter(now);
@@ -79,8 +69,8 @@ public class RefreshToken {
         return id;
     }
 
-    public UUID getSessionId() {
-        return sessionId;
+    public UUID getUserId() {
+        return userId;
     }
 
     public Instant getExpiresAt() {
@@ -89,7 +79,7 @@ public class RefreshToken {
 
     @Override
     public String toString() {
-        // Never expose the hash, let alone anything derived from the plaintext.
-        return "RefreshToken{id=" + id + ", sessionId=" + sessionId + "}";
+        // Never expose the hash.
+        return "PasswordResetToken{id=" + id + ", userId=" + userId + "}";
     }
 }

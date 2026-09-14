@@ -18,6 +18,7 @@ public record AuthProperties(
         @DefaultValue("flowops-api") String audience,
         @DefaultValue("15m") Duration accessTokenTtl,
         @DefaultValue("7d") Duration refreshTokenTtl,
+        @DefaultValue("1h") Duration resetTokenTtl,
         @DefaultValue("12") int bcryptStrength,
         RefreshCookie refreshCookie) {
 

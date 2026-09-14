@@ -1,6 +1,7 @@
 package com.flowops.repository;
 
 import com.flowops.domain.OrganizationMember;
+import com.flowops.domain.Role;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -27,6 +28,12 @@ public interface OrganizationMemberRepository
     List<OrganizationMember> findByOrganizationIdOrderByJoinedAtAscUserIdAsc(UUID organizationId);
 
     long countByOrganizationId(UUID organizationId);
+
+    /**
+     * How many members hold a given role in an org. Used to protect the last
+     * {@code OWNER} from being demoted or removed (team management).
+     */
+    long countByOrganizationIdAndRole(UUID organizationId, Role role);
 
     /**
      * The earliest-joined membership: the current org on login, and the fallback

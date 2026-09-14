@@ -75,6 +75,15 @@ public class UserAccount {
         return id;
     }
 
+    /**
+     * Replaces the BCrypt hash after a verified change-password. The plaintext never
+     * reaches this method — the caller encodes first.
+     */
+    public void changePassword(String newPasswordHash) {
+        this.passwordHash = newPasswordHash;
+        this.updatedAt = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+    }
+
     public String getEmail() {
         return email;
     }

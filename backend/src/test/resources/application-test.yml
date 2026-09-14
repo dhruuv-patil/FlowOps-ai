@@ -1,0 +1,79 @@
+# Test profile. The same Spring context as production, but with H2 instead of
+# Postgres, Flyway disabled (Hibernate creates the schema from the entities),
+# and the in-memory queue forced so the worker pool is local and deterministic.
+#
+# Why a separate profile: spring.jpa.hibernate.ddl-auto=validate in production
+# requires every entity to match the Flyway-managed schema exactly. H2's
+# PostgreSQL compatibility is good but not perfect (citext, jsonb, the
+# upsert-style inserts Flyway emits), and the test's purpose is to exercise
+# the engine end-to-end, not to assert the production schema. So in tests we
+# let Hibernate create the schema; the Flyway files are still the source of
+# truth for production.
+
+spring:
+  datasource:
+    url: jdbc:h2:mem:flowops-test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE;CASE_INSENSITIVE_IDENTIFIERS=TRUE
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+        format_sql: false
+    open-in-view: false
+  flyway:
+    enabled: false
+
+flowops:
+  cors:
+    allowed-origins: http://localhost:3000
+  # Integration tests run many register/login/forgot calls against the shared
+  # in-memory limiter; the per-IP windows (5 register/hour, etc.) would flake the
+  # suite. The limiter itself has its own focused unit test. Production is unaffected.
+  ratelimit:
+    enabled: false
+  auth:
+    jwt-secret: flowops-test-only-jwt-secret-not-for-production-0123456789
+    issuer: flowops-test
+    audience: flowops-test
+    bcrypt-strength: 4
+  execution:
+    worker-pool-size: 2
+    max-attempts: 1
+    retry-backoff: 100ms
+    max-retry-backoff: 100ms
+    max-delay-seconds: 1
+    http-connect-timeout: 2s
+    http-request-timeout: 2s
+    http-max-body-bytes: 1024
+    sse-timeout: 5s
+  crypto:
+    # 32 zero bytes, base64-encoded. H2/test-only — never used in production.
+    encryption-key: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+  ai:
+    base-url: http://127.0.0.1:1
+    token: ""
+    connect-timeout: 100ms
+    request-timeout: 200ms
+  webhook:
+    public-base-url: http://localhost:8080
+  # SMTP relay configured so the password-reset mailer attempts delivery. The real
+  # SocketSmtpTransport is replaced by a recording fake in AuthSecurityIntegrationTest,
+  # so nothing here reaches a network. Dummy values only — never real credentials.
+  mail:
+    host: smtp.example.test
+    port: 2525
+    username: test-user
+    password: test-password
+    encryption: STARTTLS
+    from-address: no-reply@flowops.test
+    from-name: FlowOps Test
+    app-base-url: http://localhost:3000
+
+logging:
+  level:
+    root: WARN
+    com.flowops: INFO

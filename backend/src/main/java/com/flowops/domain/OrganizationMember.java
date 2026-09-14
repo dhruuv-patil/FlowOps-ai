@@ -52,6 +52,14 @@ public class OrganizationMember {
         return member;
     }
 
+    /**
+     * Changes this member's role. The row identity, tenant, and join time are
+     * immutable; only the role moves (contract §5, team management).
+     */
+    public void changeRole(Role newRole) {
+        this.role = newRole;
+    }
+
     public UUID getId() {
         return id;
     }

@@ -51,6 +51,12 @@ public class SecurityConfig {
         "/api/auth/login",
         "/api/auth/refresh",
         "/api/auth/logout",
+        // A user who forgot their password is by definition logged out, so the
+        // two reset endpoints must be reachable anonymously. Their protection is
+        // the per-IP+email rate limit and the mandatory application/json content
+        // type (CSRF preflight), not a bearer token.
+        "/api/auth/forgot-password",
+        "/api/auth/reset-password",
         "/v3/api-docs",
         "/v3/api-docs/**",
         "/swagger-ui.html",
@@ -91,6 +97,11 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // Preflight carries no credential and must never be gated.
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        // Public inbound webhooks authenticate with the URL token, not a
+                        // bearer. Single-segment wildcards match exactly
+                        // /api/webhooks/{workflowId}/{token} — POST only. Deliberately not
+                        // in PUBLIC_PATHS (that matches every method and any depth).
+                        .requestMatchers(HttpMethod.POST, "/api/webhooks/*/*").permitAll()
                         .requestMatchers(PUBLIC_PATHS).permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(handling -> handling

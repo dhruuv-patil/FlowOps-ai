@@ -2,6 +2,8 @@ package com.flowops.auth;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.flowops.api.SessionResponse;
+import com.flowops.auth.ForgotPasswordRequest;
+import com.flowops.auth.ResetPasswordRequest;
 import com.flowops.common.ratelimit.RateLimiter;
 import com.flowops.security.AuthenticatedUser;
 import com.flowops.security.FlowOpsPrincipal;
@@ -54,12 +56,17 @@ public class AuthController {
     private static final int REFRESH_LIMIT = 60;
 
     private final AuthService authService;
+    private final PasswordResetService passwordResetService;
     private final RefreshCookies refreshCookies;
     private final RateLimiter rateLimiter;
 
     public AuthController(
-            AuthService authService, RefreshCookies refreshCookies, RateLimiter rateLimiter) {
+            AuthService authService,
+            PasswordResetService passwordResetService,
+            RefreshCookies refreshCookies,
+            RateLimiter rateLimiter) {
         this.authService = authService;
+        this.passwordResetService = passwordResetService;
         this.refreshCookies = refreshCookies;
         this.rateLimiter = rateLimiter;
     }
@@ -162,6 +169,57 @@ public class AuthController {
     @Operation(summary = "The current session as the database sees it right now")
     public SessionResponse me() {
         return authService.currentSession(AuthenticatedUser.require());
+    }
+
+    /**
+     * Changes the caller's password (Slice 3, security settings). {@code 204} on
+     * success; other devices are signed out while this session survives. The current
+     * password is re-verified, so this is safe to expose to any authenticated user.
+     */
+    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE, path = "/change-password")
+    @Operation(summary = "Change the current user's password and revoke other sessions")
+    public ResponseEntity<Void> changePassword(@Valid @RequestBody ChangePasswordRequest request) {
+        FlowOpsPrincipal principal = AuthenticatedUser.require();
+        authService.changePassword(principal, request.currentPassword(), request.newPassword());
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Initiates a password reset. Always returns {@code 204} with a generic message
+     * (contract §5.x): never reveals whether the email is registered. If the email
+     * exists, a short-lived, single-use reset token is generated and passed to the
+     * email delivery abstraction.
+     *
+     * <p>Rate-limited per IP + normalized email.
+     */
+    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE, path = "/forgot-password")
+    @Operation(summary = "Request a password reset link (always returns 204)")
+    public ResponseEntity<Void> forgotPassword(
+            @Valid @RequestBody ForgotPasswordRequest request, HttpServletRequest http) {
+
+        rateLimiter.check(
+                "forgot-password:ip:" + RateLimiter.clientIp(http),
+                5,
+                Duration.ofMinutes(60));
+
+        passwordResetService.forgotPassword(request, RateLimiter.clientIp(http));
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Completes a password reset using a token from the email link. Validates the
+     * token (exists, not used, not expired), hashes the new password, updates the
+     * user, marks the token used, and revokes all sessions/refresh tokens for the
+     * user so a compromised password results in immediate sign-out everywhere.
+     *
+     * <p>Returns {@code 204} on success. {@code 401 REFRESH_TOKEN_INVALID} for an
+     * invalid/expired/used token — no distinction is made.
+     */
+    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE, path = "/reset-password")
+    @Operation(summary = "Reset password with a token from the email link")
+    public ResponseEntity<Void> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        passwordResetService.resetPassword(request);
+        return ResponseEntity.noContent().build();
     }
 
     /* ------------------------------------------------------------------ util */

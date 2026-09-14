@@ -6,6 +6,7 @@ import java.time.Duration;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
@@ -25,11 +26,22 @@ public class RateLimiter {
 
     private final Map<String, Window> windows = new ConcurrentHashMap<>();
 
+    /** A test seam: {@code flowops.ratelimit.enabled: false} turns the limiter off
+     *  (integration tests would otherwise trip the tight per-IP windows). */
+    private final boolean enabled;
+
+    public RateLimiter(@Value("${flowops.ratelimit.enabled:true}") boolean enabled) {
+        this.enabled = enabled;
+    }
+
     /**
      * Counts one hit against {@code key} and throws {@code 429 RATE_LIMITED} once
-     * the window's allowance is exhausted.
+     * the window's allowance is exhausted. A no-op while {@code enabled} is false.
      */
     public void check(String key, int limit, Duration window) {
+        if (!enabled) {
+            return;
+        }
         long now = System.currentTimeMillis();
         long windowMillis = window.toMillis();
 

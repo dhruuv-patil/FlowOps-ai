@@ -2,21 +2,32 @@ package com.flowops.organization;
 
 import com.flowops.api.AuthResponse;
 import com.flowops.api.Envelopes;
+import com.flowops.api.InvitationResponse;
+import com.flowops.api.InvitationSecretResponse;
 import com.flowops.api.MembershipResponse;
 import com.flowops.api.OrganizationMemberResponse;
 import com.flowops.api.OrganizationResponse;
 import com.flowops.api.SessionResponse;
+import com.flowops.audit.AuditService;
 import com.flowops.auth.AuthResult;
 import com.flowops.auth.SessionAssembler;
 import com.flowops.common.error.ApiException;
 import com.flowops.common.error.ErrorCode;
+import com.flowops.domain.AuditAction;
 import com.flowops.domain.AuthSession;
+import com.flowops.domain.Invitation;
 import com.flowops.domain.Organization;
 import com.flowops.domain.OrganizationMember;
+import com.flowops.domain.Role;
+import com.flowops.domain.UserAccount;
 import com.flowops.repository.AuthSessionRepository;
+import com.flowops.repository.InvitationRepository;
 import com.flowops.repository.OrganizationMemberRepository;
 import com.flowops.repository.OrganizationRepository;
+import com.flowops.repository.UserRepository;
 import com.flowops.security.FlowOpsPrincipal;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -40,18 +51,33 @@ public class OrganizationService {
     private final AuthSessionRepository sessions;
     private final OrganizationCreator organizationCreator;
     private final SessionAssembler sessionAssembler;
+    private final UserRepository users;
+    private final InvitationRepository invitations;
+    private final InvitationTokens invitationTokens;
+    private final AuditService audit;
+
+    /** A generated invitation is valid for seven days; regenerating resets the clock. */
+    private static final Duration INVITE_TTL = Duration.ofDays(7);
 
     public OrganizationService(
             OrganizationRepository organizations,
             OrganizationMemberRepository members,
             AuthSessionRepository sessions,
             OrganizationCreator organizationCreator,
-            SessionAssembler sessionAssembler) {
+            SessionAssembler sessionAssembler,
+            UserRepository users,
+            InvitationRepository invitations,
+            InvitationTokens invitationTokens,
+            AuditService audit) {
         this.organizations = organizations;
         this.members = members;
         this.sessions = sessions;
         this.organizationCreator = organizationCreator;
         this.sessionAssembler = sessionAssembler;
+        this.users = users;
+        this.invitations = invitations;
+        this.invitationTokens = invitationTokens;
+        this.audit = audit;
     }
 
     /** Every org the caller belongs to — the switcher payload (contract §5.6). */
@@ -83,6 +109,11 @@ public class OrganizationService {
         OrganizationMember membership = requireMembership(principal);
         Organization organization = requireOrganization(principal.organizationId());
         organization.rename(request.name());
+        audit.record(
+                principal,
+                AuditAction.ORGANIZATION_RENAMED,
+                organization.getId().toString(),
+                "Renamed the organization to \"" + organization.getName() + "\".");
         long memberCount = members.countByOrganizationId(organization.getId());
         return Envelopes.OrganizationContext.of(
                 OrganizationResponse.of(organization), membership.getRole(), memberCount);
@@ -149,6 +180,212 @@ public class OrganizationService {
                 membership.getRole());
 
         return AuthResult.tokenOnly(response);
+    }
+
+    /**
+     * Changes another member's role (contract §5, team management). Requires
+     * {@code ADMIN} (enforced in the controller). Guards, in order: you cannot change
+     * your own role; only an {@code OWNER} may grant {@code OWNER} or modify an
+     * existing owner; and the last owner can never be demoted.
+     */
+    @Transactional
+    public Envelopes.Members changeMemberRole(
+            FlowOpsPrincipal principal, UUID targetUserId, Role newRole) {
+        OrganizationMember actor = requireMembership(principal);
+        UUID orgId = principal.organizationId();
+
+        if (targetUserId.equals(principal.userId())) {
+            throw new ApiException(ErrorCode.CANNOT_MODIFY_SELF);
+        }
+        OrganizationMember target = members
+                .findByUserIdAndOrganizationId(targetUserId, orgId)
+                .orElseThrow(() -> new ApiException(ErrorCode.MEMBER_NOT_FOUND));
+
+        // Only an owner may grant OWNER or touch an existing owner. An admin manages
+        // members up to admin but must never mint or modify an owner.
+        boolean touchesOwner = target.getRole() == Role.OWNER || newRole == Role.OWNER;
+        if (touchesOwner && actor.getRole() != Role.OWNER) {
+            throw new ApiException(ErrorCode.FORBIDDEN_ROLE);
+        }
+        // Never demote the last owner — an org must always have one.
+        if (target.getRole() == Role.OWNER
+                && newRole != Role.OWNER
+                && members.countByOrganizationIdAndRole(orgId, Role.OWNER) <= 1) {
+            throw new ApiException(ErrorCode.LAST_OWNER);
+        }
+
+        Role previousRole = target.getRole();
+        target.changeRole(newRole);
+        audit.record(
+                principal,
+                AuditAction.MEMBER_ROLE_CHANGED,
+                targetUserId.toString(),
+                "Changed a member's role from " + previousRole + " to " + newRole + ".");
+        return membersOf(orgId);
+    }
+
+    /**
+     * Removes another member from the org (contract §5, team management). Requires
+     * {@code ADMIN}. You cannot remove yourself; only an owner may remove an owner;
+     * and the last owner can never be removed. The removed user's sessions are not
+     * force-closed here — the refresh path already re-resolves membership and falls
+     * back to another org (or fails cleanly) on their next token rotation (§2.2).
+     */
+    @Transactional
+    public Envelopes.Members removeMember(FlowOpsPrincipal principal, UUID targetUserId) {
+        OrganizationMember actor = requireMembership(principal);
+        UUID orgId = principal.organizationId();
+
+        if (targetUserId.equals(principal.userId())) {
+            throw new ApiException(ErrorCode.CANNOT_MODIFY_SELF);
+        }
+        OrganizationMember target = members
+                .findByUserIdAndOrganizationId(targetUserId, orgId)
+                .orElseThrow(() -> new ApiException(ErrorCode.MEMBER_NOT_FOUND));
+
+        if (target.getRole() == Role.OWNER) {
+            if (actor.getRole() != Role.OWNER) {
+                throw new ApiException(ErrorCode.FORBIDDEN_ROLE);
+            }
+            if (members.countByOrganizationIdAndRole(orgId, Role.OWNER) <= 1) {
+                throw new ApiException(ErrorCode.LAST_OWNER);
+            }
+        }
+
+        members.delete(target);
+        audit.record(
+                principal,
+                AuditAction.MEMBER_REMOVED,
+                targetUserId.toString(),
+                "Removed a " + target.getRole() + " from the organization.");
+        return membersOf(orgId);
+    }
+
+    /** Pending/accepted/revoked invitations for the current org (admin view). */
+    @Transactional(readOnly = true)
+    public Envelopes.Invitations listInvitations(FlowOpsPrincipal principal) {
+        requireMembership(principal);
+        List<InvitationResponse> list =
+                invitations.findByOrganizationIdOrderByCreatedAtDesc(principal.organizationId())
+                        .stream()
+                        .map(InvitationResponse::of)
+                        .toList();
+        return new Envelopes.Invitations(list);
+    }
+
+    /**
+     * Creates (or re-mints) a tokened invitation for an email at a role. Requires
+     * {@code ADMIN}. The role may not be {@code OWNER}. If the address already belongs
+     * to a member, there is nothing to invite. Returns the raw token exactly once.
+     */
+    @Transactional
+    public InvitationSecretResponse invite(FlowOpsPrincipal principal, InviteMemberRequest request) {
+        requireMembership(principal);
+        UUID orgId = principal.organizationId();
+
+        Role role = request.role();
+        if (role == Role.OWNER) {
+            throw new ApiException(ErrorCode.INVITATION_INVALID);
+        }
+
+        // Already a member of this org? Nothing to invite.
+        users.findByEmailIgnoreCase(request.email())
+                .flatMap(user -> members.findByUserIdAndOrganizationId(user.getId(), orgId))
+                .ifPresent(existing -> {
+                    throw new ApiException(ErrorCode.INVITATION_INVALID);
+                });
+
+        InvitationTokens.Generated minted = invitationTokens.generate();
+        Instant expiresAt = Instant.now().plus(INVITE_TTL);
+
+        Invitation invitation = invitations
+                .findByOrganizationIdAndEmailIgnoreCaseAndStatus(
+                        orgId, request.email(), Invitation.Status.PENDING)
+                .map(pending -> {
+                    pending.reissue(role, minted.hash(), minted.hint(), expiresAt);
+                    return pending;
+                })
+                .orElseGet(() -> invitations.save(Invitation.create(
+                        orgId, request.email(), role, minted.hash(), minted.hint(),
+                        principal.userId(), expiresAt)));
+
+        // The minted token is deliberately absent from the audit trail — only the
+        // invited address and the role it grants are recorded.
+        audit.record(
+                principal,
+                AuditAction.MEMBER_INVITED,
+                invitation.getEmail(),
+                "Invited " + invitation.getEmail() + " as " + role + ".");
+
+        return new InvitationSecretResponse(
+                minted.token(), invitation.getEmail(), role, minted.hint(), expiresAt);
+    }
+
+    /** Revokes a pending invitation (admin). Idempotent-safe: a revoked invite stays revoked. */
+    @Transactional
+    public void revokeInvitation(FlowOpsPrincipal principal, UUID invitationId) {
+        requireMembership(principal);
+        Invitation invitation = invitations
+                .findByIdAndOrganizationId(invitationId, principal.organizationId())
+                .orElseThrow(() -> new ApiException(ErrorCode.INVITATION_NOT_FOUND));
+        invitation.revoke();
+        audit.record(
+                principal,
+                AuditAction.INVITATION_REVOKED,
+                invitation.getEmail(),
+                "Revoked the invitation for " + invitation.getEmail() + ".");
+    }
+
+    /**
+     * Redeems an invitation token for the authenticated caller, adding them to the
+     * invitation's org at its role. The org and role come only from the stored
+     * invitation, never the client. Every failure — unknown/expired/revoked token, or
+     * a token whose email does not match the caller's — is the same opaque
+     * {@code INVITATION_NOT_FOUND}, so a leaked token cannot enroll another account
+     * and cannot be probed. Does not switch the caller in; they switch afterwards.
+     */
+    @Transactional
+    public Envelopes.OrganizationContext acceptInvitation(FlowOpsPrincipal principal, String token) {
+        Invitation invitation = invitations
+                .findByTokenHash(invitationTokens.hash(token))
+                .filter(Invitation::isPending)
+                .filter(candidate -> !candidate.isExpired(Instant.now()))
+                .orElseThrow(() -> new ApiException(ErrorCode.INVITATION_NOT_FOUND));
+
+        // Match against the authoritative DB email, not the token's convenience claim.
+        UserAccount user = users.findById(principal.userId())
+                .orElseThrow(() -> new ApiException(ErrorCode.AUTHENTICATION_REQUIRED));
+        if (!invitation.getEmail().equalsIgnoreCase(user.getEmail())) {
+            throw new ApiException(ErrorCode.INVITATION_NOT_FOUND);
+        }
+
+        UUID orgId = invitation.getOrganizationId();
+        if (members.findByUserIdAndOrganizationId(user.getId(), orgId).isEmpty()) {
+            members.save(OrganizationMember.create(user.getId(), orgId, invitation.getRole()));
+        }
+        invitation.accept();
+
+        // Recorded against the org being JOINED — read from the stored invitation, not
+        // the principal's current org, which is a different tenant at this moment.
+        audit.record(
+                orgId,
+                user.getId(),
+                user.getEmail(),
+                AuditAction.INVITATION_ACCEPTED,
+                user.getEmail(),
+                user.getEmail() + " joined as " + invitation.getRole() + ".");
+
+        Organization organization = requireOrganization(orgId);
+        return Envelopes.OrganizationContext.created(
+                OrganizationResponse.of(organization), invitation.getRole());
+    }
+
+    private Envelopes.Members membersOf(UUID organizationId) {
+        List<OrganizationMemberResponse> memberList =
+                members.findMemberRows(organizationId).stream()
+                        .map(OrganizationMemberResponse::of)
+                        .toList();
+        return new Envelopes.Members(memberList);
     }
 
     private OrganizationMember requireMembership(FlowOpsPrincipal principal) {
