@@ -4,6 +4,7 @@ import com.flowops.api.ExecutionDetailResponse;
 import com.flowops.api.ExecutionEnvelopes;
 import com.flowops.api.ExecutionStatsResponse;
 import com.flowops.domain.ExecutionStatus;
+import com.flowops.domain.Role;
 import com.flowops.security.AuthenticatedUser;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -72,12 +74,20 @@ public class ExecutionController {
             @PathVariable UUID executionId,
             @PathVariable String nodeId,
             @Valid @RequestBody ApprovalDecisionRequest request) {
-        return executionService.decide(AuthenticatedUser.require(), executionId, nodeId, request);
+        return executionService.decide(AuthenticatedUser.requireRole(Role.MEMBER), executionId, nodeId, request);
     }
 
     @PostMapping("/{executionId}/retry")
     @Operation(summary = "Retry a failed run from its failed step")
-    public ExecutionDetailResponse retry(@PathVariable UUID executionId) {
-        return executionService.retry(AuthenticatedUser.require(), executionId);
+    public ExecutionDetailResponse retry(
+            @PathVariable UUID executionId,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+        return executionService.retry(AuthenticatedUser.requireRole(Role.MEMBER), executionId, idempotencyKey);
+    }
+
+    @PostMapping("/{executionId}/cancel")
+    @Operation(summary = "Cancel a queued or running execution")
+    public ExecutionDetailResponse cancel(@PathVariable UUID executionId) {
+        return executionService.cancel(AuthenticatedUser.requireRole(Role.MEMBER), executionId);
     }
 }

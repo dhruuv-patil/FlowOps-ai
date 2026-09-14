@@ -10,7 +10,8 @@ import java.util.List;
  * @param key      config map key
  * @param label    human label for the form
  * @param type     input widget hint: {@code string}, {@code text}, {@code number},
- *                 {@code boolean}, {@code select}, {@code json}, {@code code}
+ *                 {@code boolean}, {@code select}, {@code json}, {@code code},
+ *                 {@code agent} (a picker of the org's saved AI agents)
  * @param required whether validation fails when the value is missing/blank
  * @param options  allowed values for {@code select}; empty otherwise
  * @param help     optional helper text shown under the field
@@ -47,5 +48,13 @@ public record ConfigField(
 
     public static ConfigField json(String key, String label, boolean required, String help) {
         return new ConfigField(key, label, "json", required, List.of(), help, null);
+    }
+
+    /**
+     * A picker bound to the caller's saved AI agents. The stored value is an agent
+     * id (a UUID string); the frontend resolves it to a name via the agents API.
+     */
+    public static ConfigField agent(String key, String label, boolean required, String help) {
+        return new ConfigField(key, label, "agent", required, List.of(), help, null);
     }
 }

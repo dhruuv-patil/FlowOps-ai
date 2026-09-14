@@ -13,6 +13,7 @@ import com.flowops.common.error.ErrorCode;
 import com.flowops.domain.ExecutionLog;
 import com.flowops.domain.ExecutionNode;
 import com.flowops.domain.ExecutionStatus;
+import com.flowops.domain.IdempotencyKey;
 import com.flowops.domain.LogLevel;
 import com.flowops.domain.NodeRunStatus;
 import com.flowops.domain.TriggerType;
@@ -22,6 +23,7 @@ import com.flowops.domain.WorkflowVersion;
 import com.flowops.repository.ExecutionLogRepository;
 import com.flowops.repository.ExecutionNodeRepository;
 import com.flowops.repository.ExecutionStatRow;
+import com.flowops.repository.IdempotencyKeyRepository;
 import com.flowops.repository.WorkflowExecutionRepository;
 import com.flowops.repository.WorkflowRepository;
 import com.flowops.repository.WorkflowVersionRepository;
@@ -74,6 +76,7 @@ public class ExecutionService {
     private final ExecutionProperties properties;
     private final NodeRegistry nodeRegistry;
     private final ObjectMapper mapper;
+    private final IdempotencyKeyRepository idempotencyKeys;
 
     public ExecutionService(
             WorkflowRepository workflows,
@@ -85,7 +88,8 @@ public class ExecutionService {
             ExecutionEvents events,
             ExecutionProperties properties,
             NodeRegistry nodeRegistry,
-            ObjectMapper mapper) {
+            ObjectMapper mapper,
+            IdempotencyKeyRepository idempotencyKeys) {
         this.workflows = workflows;
         this.versions = versions;
         this.executions = executions;
@@ -96,76 +100,233 @@ public class ExecutionService {
         this.properties = properties;
         this.nodeRegistry = nodeRegistry;
         this.mapper = mapper;
+        this.idempotencyKeys = idempotencyKeys;
     }
 
     // ---- start -----------------------------------------------------------
 
     /**
-     * Starts a run of a workflow's latest published version. Creates the run and a
-     * {@code PENDING} row per graph node, then enqueues it — after the transaction
-     * commits, so the worker never races ahead of the rows it needs to read.
+     * Starts a run of a workflow's latest published version for the calling user.
+     * Resolves the workflow org-scoped, then delegates to the shared create-and-enqueue
+     * core with the principal as {@code created_by}.
      */
     @Transactional
     public ExecutionDetailResponse run(
-            FlowOpsPrincipal principal, UUID workflowId, RunWorkflowRequest request) {
-        Workflow workflow = workflows
-                .findByIdAndOrganizationId(workflowId, principal.organizationId())
-                .orElseThrow(() -> new ApiException(ErrorCode.WORKFLOW_NOT_FOUND));
+            FlowOpsPrincipal principal,
+            UUID workflowId,
+            RunWorkflowRequest request) {
+
+        Workflow workflow =
+                workflows.findByIdAndOrganizationId(
+                                workflowId,
+                                principal.organizationId())
+                        .orElseThrow(
+                                () -> new ApiException(
+                                        ErrorCode.WORKFLOW_NOT_FOUND));
+
+        JsonNode payload =
+                (request == null
+                                || request.input() == null
+                                || request.input().isNull())
+                        ? mapper.createObjectNode()
+                        : request.input();
+
+        WorkflowExecution execution =
+                startRun(
+                        workflow,
+                        payload,
+                        principal.userId());
+
+        return detail(
+                execution,
+                workflow.getName());
+    }
+
+    /**
+     * Starts a run from a validated inbound webhook. There is no principal: the trusted
+     * {@code organizationId} is supplied by the webhook layer from the stored webhook
+     * row (never from client input). Every not-runnable condition — unknown or
+     * cross-tenant workflow, no published version, or a published graph without a
+     * webhook trigger — throws the same opaque {@link ErrorCode#NOT_FOUND}, matching the
+     * public ingress's uniform failures. The run is created with {@code created_by = null}
+     * and, because the graph has a webhook trigger, {@code trigger_type = WEBHOOK}.
+     */
+    @Transactional
+    public UUID startWebhookRun(
+            UUID workflowId,
+            UUID organizationId,
+            JsonNode payload) {
+
+        Workflow workflow =
+                workflows.findByIdAndOrganizationId(
+                                workflowId,
+                                organizationId)
+                        .orElseThrow(
+                                () -> new ApiException(
+                                        ErrorCode.NOT_FOUND));
 
         Integer latest = workflow.getLatestVersion();
+
         if (latest == null) {
-            throw new ApiException(ErrorCode.WORKFLOW_NOT_PUBLISHED);
+            throw new ApiException(ErrorCode.NOT_FOUND);
         }
-        WorkflowVersion version = versions
-                .findByWorkflowIdAndVersionNumber(workflowId, latest)
-                .orElseThrow(() -> new ApiException(ErrorCode.WORKFLOW_NOT_PUBLISHED));
+
+        WorkflowVersion version =
+                versions.findByWorkflowIdAndVersionNumber(
+                                workflowId,
+                                latest)
+                        .orElseThrow(
+                                () -> new ApiException(ErrorCode.NOT_FOUND));
 
         GraphDocument graph = parse(version.getGraph());
-        JsonNode payload = (request == null || request.input() == null || request.input().isNull())
-                ? mapper.createObjectNode()
-                : request.input();
 
-        WorkflowExecution execution = WorkflowExecution.create(
-                principal.organizationId(),
-                workflowId,
-                version.getId(),
+        if (triggerTypeOf(graph) != TriggerType.WEBHOOK) {
+            throw new ApiException(ErrorCode.NOT_FOUND);
+        }
+
+        return startRun(
+                        workflow,
+                        version,
+                        latest,
+                        graph,
+                        payload,
+                        null)
+                .getId();
+    }
+
+    /**
+     * Resolves {@code workflow}'s latest published version and starts a run on behalf of
+     * {@code createdByOrNull} (null for a principal-free trigger such as an inbound
+     * webhook). {@code WORKFLOW_NOT_PUBLISHED} when there is no published version — the
+     * webhook path never reaches here unpublished, since it maps that to an opaque 404
+     * before delegating.
+     */
+    private WorkflowExecution startRun(
+            Workflow workflow,
+            JsonNode payload,
+            UUID createdByOrNull) {
+
+        Integer latest = workflow.getLatestVersion();
+
+        if (latest == null) {
+            throw new ApiException(
+                    ErrorCode.WORKFLOW_NOT_PUBLISHED);
+        }
+
+        WorkflowVersion version =
+                versions.findByWorkflowIdAndVersionNumber(
+                                workflow.getId(),
+                                latest)
+                        .orElseThrow(
+                                () -> new ApiException(
+                                        ErrorCode.WORKFLOW_NOT_PUBLISHED));
+
+        GraphDocument graph = parse(version.getGraph());
+
+        return startRun(
+                workflow,
+                version,
                 latest,
-                triggerTypeOf(graph),
+                graph,
                 payload,
-                principal.userId());
+                createdByOrNull);
+    }
+
+    /**
+     * The create-and-enqueue core shared by every run path: persists the execution and a
+     * {@code PENDING} row per graph node, then enqueues after the transaction commits so
+     * the worker never races ahead of the rows it needs to read. {@code createdByOrNull}
+     * maps to the nullable {@code created_by} column, so a principal-free run is valid.
+     */
+    private WorkflowExecution startRun(
+            Workflow workflow,
+            WorkflowVersion version,
+            int versionNumber,
+            GraphDocument graph,
+            JsonNode payload,
+            UUID createdByOrNull) {
+
+        WorkflowExecution execution =
+                WorkflowExecution.create(
+                        workflow.getOrganizationId(),
+                        workflow.getId(),
+                        version.getId(),
+                        versionNumber,
+                        triggerTypeOf(graph),
+                        payload,
+                        createdByOrNull);
+
         executions.save(execution);
 
         for (GraphNode node : graph.nodes()) {
-            nodes.save(ExecutionNode.create(execution.getId(), node.id(), node.type(), labelOf(node)));
+            nodes.save(
+                    ExecutionNode.create(
+                            execution.getId(),
+                            node.id(),
+                            node.type(),
+                            labelOf(node)));
         }
 
         enqueueAfterCommit(execution.getId());
-        return detail(execution, workflow.getName());
+
+        return execution;
     }
 
     // ---- read ------------------------------------------------------------
 
     @Transactional(readOnly = true)
     public ExecutionEnvelopes.Executions list(
-            FlowOpsPrincipal principal, UUID workflowId, ExecutionStatus status, Integer limit) {
-        List<WorkflowExecution> rows = executions.search(
-                principal.organizationId(), workflowId, status, PageRequest.of(0, clampLimit(limit)));
+            FlowOpsPrincipal principal,
+            UUID workflowId,
+            ExecutionStatus status,
+            Integer limit) {
+
+        List<WorkflowExecution> rows =
+                executions.search(
+                        principal.organizationId(),
+                        workflowId,
+                        status,
+                        PageRequest.of(
+                                0,
+                                clampLimit(limit)));
 
         Map<UUID, String> names = new HashMap<>();
-        List<ExecutionSummaryResponse> summaries = new ArrayList<>(rows.size());
+        List<ExecutionSummaryResponse> summaries =
+                new ArrayList<>(rows.size());
+
         for (WorkflowExecution execution : rows) {
-            String name = names.computeIfAbsent(
-                    execution.getWorkflowId(),
-                    id -> workflowName(principal.organizationId(), id));
-            summaries.add(ExecutionSummaryResponse.of(execution, name));
+            String name =
+                    names.computeIfAbsent(
+                            execution.getWorkflowId(),
+                            id -> workflowName(
+                                    principal.organizationId(),
+                                    id));
+
+            summaries.add(
+                    ExecutionSummaryResponse.of(
+                            execution,
+                            name));
         }
-        return new ExecutionEnvelopes.Executions(summaries);
+
+        return new ExecutionEnvelopes.Executions(
+                summaries);
     }
 
     @Transactional(readOnly = true)
-    public ExecutionDetailResponse get(FlowOpsPrincipal principal, UUID executionId) {
-        WorkflowExecution execution = require(principal, executionId);
-        return detail(execution, workflowName(principal.organizationId(), execution.getWorkflowId()));
+    public ExecutionDetailResponse get(
+            FlowOpsPrincipal principal,
+            UUID executionId) {
+
+        WorkflowExecution execution =
+                require(
+                        principal,
+                        executionId);
+
+        return detail(
+                execution,
+                workflowName(
+                        principal.organizationId(),
+                        execution.getWorkflowId()));
     }
 
     /**
@@ -175,27 +336,70 @@ public class ExecutionService {
      * right after the snapshot — the client re-opens the stream if it resumes.
      */
     @Transactional(readOnly = true)
-    public SseEmitter stream(FlowOpsPrincipal principal, UUID executionId) {
-        WorkflowExecution execution = require(principal, executionId);
-        SseEmitter emitter = events.subscribe(executionId, properties.sseTimeout().toMillis());
+    public SseEmitter stream(
+            FlowOpsPrincipal principal,
+            UUID executionId) {
+
+        WorkflowExecution execution =
+                require(
+                        principal,
+                        executionId);
+
+        SseEmitter emitter =
+                events.subscribe(
+                        executionId,
+                        properties.sseTimeout().toMillis());
+
         try {
-            emitter.send(SseEmitter.event()
-                    .name(ExecutionEvents.EXECUTION)
-                    .data(ExecutionSummaryResponse.of(execution, null)));
-            for (ExecutionNode node : nodes.findByExecutionIdOrderByCreatedAtAsc(executionId)) {
-                emitter.send(SseEmitter.event().name(ExecutionEvents.NODE).data(ExecutionNodeResponse.of(node)));
+            emitter.send(
+                    SseEmitter.event()
+                            .name(ExecutionEvents.EXECUTION)
+                            .data(
+                                    ExecutionSummaryResponse.of(
+                                            execution,
+                                            null)));
+
+            for (ExecutionNode node :
+                    nodes.findByExecutionIdOrderByCreatedAtAsc(
+                            executionId)) {
+
+                emitter.send(
+                        SseEmitter.event()
+                                .name(ExecutionEvents.NODE)
+                                .data(
+                                        ExecutionNodeResponse.of(
+                                                node)));
             }
-            for (ExecutionLog entry : logs.findByExecutionIdOrderBySeqAsc(executionId)) {
-                emitter.send(SseEmitter.event().name(ExecutionEvents.LOG).data(ExecutionLogResponse.of(entry)));
+
+            for (ExecutionLog entry :
+                    logs.findByExecutionIdOrderBySeqAsc(
+                            executionId)) {
+
+                emitter.send(
+                        SseEmitter.event()
+                                .name(ExecutionEvents.LOG)
+                                .data(
+                                        ExecutionLogResponse.of(
+                                                entry)));
             }
-            ExecutionStatus status = execution.getStatus();
-            if (status != ExecutionStatus.RUNNING && status != ExecutionStatus.QUEUED) {
-                emitter.send(SseEmitter.event().name(ExecutionEvents.DONE).data("{}"));
+
+            ExecutionStatus status =
+                    execution.getStatus();
+
+            if (status != ExecutionStatus.RUNNING
+                    && status != ExecutionStatus.QUEUED) {
+
+                emitter.send(
+                        SseEmitter.event()
+                                .name(ExecutionEvents.DONE)
+                                .data("{}"));
+
                 emitter.complete();
             }
         } catch (Exception disconnected) {
             emitter.completeWithError(disconnected);
         }
+
         return emitter;
     }
 
@@ -204,77 +408,318 @@ public class ExecutionService {
     /** Resolves a waiting Human Approval node and resumes the run down the chosen branch. */
     @Transactional
     public ExecutionDetailResponse decide(
-            FlowOpsPrincipal principal, UUID executionId, String nodeId, ApprovalDecisionRequest request) {
-        WorkflowExecution execution = require(principal, executionId);
+            FlowOpsPrincipal principal,
+            UUID executionId,
+            String nodeId,
+            ApprovalDecisionRequest request) {
+
+        WorkflowExecution execution =
+                require(
+                        principal,
+                        executionId);
+
         if (execution.getStatus() != ExecutionStatus.WAITING) {
-            throw new ApiException(ErrorCode.APPROVAL_NOT_PENDING);
-        }
-        ExecutionNode node = nodes.findByExecutionIdAndNodeId(executionId, nodeId)
-                .orElseThrow(() -> new ApiException(ErrorCode.APPROVAL_NOT_PENDING));
-        if (!"human_approval".equals(node.getNodeType()) || node.getStatus() != NodeRunStatus.WAITING) {
-            throw new ApiException(ErrorCode.APPROVAL_NOT_PENDING);
+            throw new ApiException(
+                    ErrorCode.APPROVAL_NOT_PENDING);
         }
 
-        boolean approved = Boolean.TRUE.equals(request.approved());
-        String handle = approved ? "approved" : "rejected";
+        ExecutionNode node =
+                nodes.findByExecutionIdAndNodeId(
+                                executionId,
+                                nodeId)
+                        .orElseThrow(
+                                () -> new ApiException(
+                                        ErrorCode.APPROVAL_NOT_PENDING));
 
-        ObjectNode output = mapper.createObjectNode();
-        output.put("approved", approved);
-        output.put("decidedBy", principal.userId().toString());
-        if (request.note() != null && !request.note().isBlank()) {
-            output.put("note", request.note().strip());
+        if (!"human_approval".equals(node.getNodeType())
+                || node.getStatus() != NodeRunStatus.WAITING) {
+
+            throw new ApiException(
+                    ErrorCode.APPROVAL_NOT_PENDING);
         }
-        node.succeed(output, List.of(handle));
+
+        boolean approved =
+                Boolean.TRUE.equals(
+                        request.approved());
+
+        String handle =
+                approved
+                        ? "approved"
+                        : "rejected";
+
+        ObjectNode output =
+                mapper.createObjectNode();
+
+        output.put(
+                "approved",
+                approved);
+
+        output.put(
+                "decidedBy",
+                principal.userId().toString());
+
+        if (request.note() != null
+                && !request.note().isBlank()) {
+
+            output.put(
+                    "note",
+                    request.note().strip());
+        }
+
+        node.succeed(
+                output,
+                List.of(handle));
+
         nodes.save(node);
 
-        int seq = logs.countByExecutionId(executionId);
-        String note = (request.note() == null || request.note().isBlank()) ? "" : ": " + request.note().strip();
-        logs.save(ExecutionLog.create(executionId, nodeId, LogLevel.INFO,
-                "Approval " + (approved ? "granted" : "rejected") + note + ".", seq));
+        int seq =
+                logs.countByExecutionId(
+                        executionId);
+
+        String note =
+                (request.note() == null
+                                || request.note().isBlank())
+                        ? ""
+                        : ": " + request.note().strip();
+
+        logs.save(
+                ExecutionLog.create(
+                        executionId,
+                        nodeId,
+                        LogLevel.INFO,
+                        "Approval "
+                                + (approved
+                                        ? "granted"
+                                        : "rejected")
+                                + note
+                                + ".",
+                        seq));
 
         execution.reopenForRetry();
         executions.save(execution);
 
         enqueueAfterCommit(executionId);
-        return detail(execution, workflowName(principal.organizationId(), execution.getWorkflowId()));
+
+        return detail(
+                execution,
+                workflowName(
+                        principal.organizationId(),
+                        execution.getWorkflowId()));
     }
 
     /** Re-runs a failed execution from its failed step, reusing already-succeeded outputs. */
     @Transactional
-    public ExecutionDetailResponse retry(FlowOpsPrincipal principal, UUID executionId) {
-        WorkflowExecution execution = require(principal, executionId);
+    public ExecutionDetailResponse retry(
+            FlowOpsPrincipal principal,
+            UUID executionId,
+            String idempotencyKey) {
+
+        WorkflowExecution execution =
+                require(
+                        principal,
+                        executionId);
+
         if (execution.getStatus() != ExecutionStatus.FAILED) {
-            throw new ApiException(ErrorCode.EXECUTION_NOT_RETRYABLE);
+            throw new ApiException(
+                    ErrorCode.EXECUTION_NOT_RETRYABLE);
         }
-        for (ExecutionNode node : nodes.findByExecutionIdOrderByCreatedAtAsc(executionId)) {
+
+        if (idempotencyKey != null
+                && !idempotencyKey.isBlank()) {
+
+            String key =
+                    "retry:"
+                            + executionId
+                            + ":"
+                            + idempotencyKey;
+
+            var existingOpt =
+                    idempotencyKeys.findByKey(key);
+
+            if (existingOpt.isPresent()) {
+                UUID existingExecutionId =
+                        existingOpt.get().getExecutionId();
+
+                return get(
+                        principal,
+                        existingExecutionId);
+            }
+        }
+
+        for (ExecutionNode node :
+                nodes.findByExecutionIdOrderByCreatedAtAsc(
+                        executionId)) {
+
             if (node.getStatus() != NodeRunStatus.SUCCEEDED) {
                 node.resetForRetry();
                 nodes.save(node);
             }
         }
-        int seq = logs.countByExecutionId(executionId);
-        logs.save(ExecutionLog.create(executionId, null, LogLevel.INFO, "Retrying the failed run.", seq));
+
+        int seq =
+                logs.countByExecutionId(
+                        executionId);
+
+        logs.save(
+                ExecutionLog.create(
+                        executionId,
+                        null,
+                        LogLevel.INFO,
+                        "Retrying the failed run.",
+                        seq));
 
         execution.reopenForRetry();
         executions.save(execution);
 
         enqueueAfterCommit(executionId);
-        return detail(execution, workflowName(principal.organizationId(), execution.getWorkflowId()));
+
+        ExecutionDetailResponse response =
+                detail(
+                        execution,
+                        workflowName(
+                                principal.organizationId(),
+                                execution.getWorkflowId()));
+
+        if (idempotencyKey != null
+                && !idempotencyKey.isBlank()) {
+
+            String key =
+                    "retry:"
+                            + executionId
+                            + ":"
+                            + idempotencyKey;
+
+            idempotencyKeys.save(
+                    IdempotencyKey.create(
+                            key,
+                            execution.getId(),
+                            java.time.Duration.ofHours(24)));
+        }
+
+        return response;
+    }
+
+    /**
+     * Cancels a run that is still in flight. Cooperative: the in-flight worker
+     * thread sees the terminal status the next time it returns to the engine's
+     * main loop.
+     *
+     * <p>{@code WAITING} runs (human approval) cannot be canceled.
+     * {@code SUCCEEDED}, {@code FAILED}, and already {@code CANCELED} runs are no-ops.
+     */
+    @Transactional
+    public ExecutionDetailResponse cancel(
+            FlowOpsPrincipal principal,
+            UUID executionId) {
+
+        WorkflowExecution execution =
+                require(
+                        principal,
+                        executionId);
+
+        ExecutionStatus current =
+                execution.getStatus();
+
+        /*
+         * Terminal executions are a true no-op.
+         *
+         * Do not load nodes or logs here. Apart from being unnecessary work,
+         * doing so would violate the cancellation contract that a terminal
+         * execution must not cause any node mutation/read-side effects.
+         */
+        if (current == ExecutionStatus.SUCCEEDED
+                || current == ExecutionStatus.FAILED
+                || current == ExecutionStatus.CANCELED) {
+
+            return detailWithoutNodes(
+                    execution,
+                    workflowName(
+                            principal.organizationId(),
+                            execution.getWorkflowId()));
+        }
+
+        if (current == ExecutionStatus.WAITING) {
+            throw new ApiException(
+                    ErrorCode.EXECUTION_NOT_CANCELABLE);
+        }
+
+        /*
+         * Flip any in-flight or pending nodes to FAILED so the UI and any open
+         * SSE stream see the cancellation. Terminal nodes (SUCCEEDED / FAILED /
+         * SKIPPED) are preserved — they already happened.
+         */
+        for (ExecutionNode node :
+                nodes.findByExecutionIdOrderByCreatedAtAsc(
+                        executionId)) {
+
+            if (node.getStatus() == NodeRunStatus.RUNNING
+                    || node.getStatus() == NodeRunStatus.PENDING) {
+
+                node.fail("Canceled by user.");
+                nodes.save(node);
+            }
+        }
+
+        int seq =
+                logs.countByExecutionId(
+                        executionId);
+
+        logs.save(
+                ExecutionLog.create(
+                        executionId,
+                        null,
+                        LogLevel.INFO,
+                        "Run canceled by user.",
+                        seq));
+
+        execution.markCanceled();
+        executions.save(execution);
+
+        return detail(
+                execution,
+                workflowName(
+                        principal.organizationId(),
+                        execution.getWorkflowId()));
     }
 
     // ---- analytics -------------------------------------------------------
 
     @Transactional(readOnly = true)
-    public ExecutionStatsResponse stats(FlowOpsPrincipal principal, String rangeParam) {
-        Range range = Range.parse(rangeParam);
-        Instant now = Instant.now();
-        Instant start = now.truncatedTo(range.unit).minus((range.buckets - 1L) * range.stepSeconds, ChronoUnit.SECONDS);
+    public ExecutionStatsResponse stats(
+            FlowOpsPrincipal principal,
+            String rangeParam) {
 
-        List<ExecutionStatRow> rows = executions.statsSince(principal.organizationId(), start);
-        return new ExecutionStatsResponse(range.label, start, totals(rows), series(rows, range, start));
+        Range range =
+                Range.parse(rangeParam);
+
+        Instant now =
+                Instant.now();
+
+        Instant start =
+                now.truncatedTo(range.unit)
+                        .minus(
+                                (range.buckets - 1L)
+                                        * range.stepSeconds,
+                                ChronoUnit.SECONDS);
+
+        List<ExecutionStatRow> rows =
+                executions.statsSince(
+                        principal.organizationId(),
+                        start);
+
+        return new ExecutionStatsResponse(
+                range.label,
+                start,
+                totals(rows),
+                series(
+                        rows,
+                        range,
+                        start));
     }
 
-    private ExecutionStatsResponse.Totals totals(List<ExecutionStatRow> rows) {
+    private ExecutionStatsResponse.Totals totals(
+            List<ExecutionStatRow> rows) {
+
         long succeeded = 0;
         long failed = 0;
         long running = 0;
@@ -293,34 +738,83 @@ public class ExecutionService {
                 case QUEUED -> queued++;
                 case CANCELED -> canceled++;
             }
-            if (row.getStartedAt() != null && row.getFinishedAt() != null) {
-                durationSum += Duration.between(row.getStartedAt(), row.getFinishedAt()).toMillis();
+
+            if (row.getStartedAt() != null
+                    && row.getFinishedAt() != null) {
+
+                durationSum +=
+                        Duration.between(
+                                        row.getStartedAt(),
+                                        row.getFinishedAt())
+                                .toMillis();
+
                 durationCount++;
             }
         }
-        long decided = succeeded + failed;
-        double successRate = decided == 0 ? 0.0 : (double) succeeded / decided;
-        Long avg = durationCount == 0 ? null : durationSum / durationCount;
+
+        long decided =
+                succeeded + failed;
+
+        double successRate =
+                decided == 0
+                        ? 0.0
+                        : (double) succeeded / decided;
+
+        Long avg =
+                durationCount == 0
+                        ? null
+                        : durationSum / durationCount;
+
         return new ExecutionStatsResponse.Totals(
-                rows.size(), succeeded, failed, running, waiting, queued, canceled, successRate, avg);
+                rows.size(),
+                succeeded,
+                failed,
+                running,
+                waiting,
+                queued,
+                canceled,
+                successRate,
+                avg);
     }
 
     private List<ExecutionStatsResponse.Point> series(
-            List<ExecutionStatRow> rows, Range range, Instant start) {
-        long[] total = new long[range.buckets];
-        long[] succeeded = new long[range.buckets];
-        long[] failed = new long[range.buckets];
-        long stepMillis = range.stepSeconds * 1000L;
+            List<ExecutionStatRow> rows,
+            Range range,
+            Instant start) {
+
+        long[] total =
+                new long[range.buckets];
+
+        long[] succeeded =
+                new long[range.buckets];
+
+        long[] failed =
+                new long[range.buckets];
+
+        long stepMillis =
+                range.stepSeconds * 1000L;
 
         for (ExecutionStatRow row : rows) {
-            if (row.getCreatedAt() == null || row.getCreatedAt().isBefore(start)) {
+            if (row.getCreatedAt() == null
+                    || row.getCreatedAt().isBefore(start)) {
                 continue;
             }
-            int index = (int) (Duration.between(start, row.getCreatedAt()).toMillis() / stepMillis);
-            if (index < 0 || index >= range.buckets) {
+
+            int index =
+                    (int)
+                            (Duration.between(
+                                            start,
+                                            row.getCreatedAt())
+                                    .toMillis()
+                                    / stepMillis);
+
+            if (index < 0
+                    || index >= range.buckets) {
                 continue;
             }
+
             total[index]++;
+
             if (row.getStatus() == ExecutionStatus.SUCCEEDED) {
                 succeeded[index]++;
             } else if (row.getStatus() == ExecutionStatus.FAILED) {
@@ -328,11 +822,23 @@ public class ExecutionService {
             }
         }
 
-        List<ExecutionStatsResponse.Point> points = new ArrayList<>(range.buckets);
+        List<ExecutionStatsResponse.Point> points =
+                new ArrayList<>(range.buckets);
+
         for (int i = 0; i < range.buckets; i++) {
-            Instant bucketStart = start.plus((long) i * range.stepSeconds, ChronoUnit.SECONDS);
-            points.add(new ExecutionStatsResponse.Point(bucketStart, total[i], succeeded[i], failed[i]));
+            Instant bucketStart =
+                    start.plus(
+                            (long) i * range.stepSeconds,
+                            ChronoUnit.SECONDS);
+
+            points.add(
+                    new ExecutionStatsResponse.Point(
+                            bucketStart,
+                            total[i],
+                            succeeded[i],
+                            failed[i]));
         }
+
         return points;
     }
 
@@ -348,7 +854,12 @@ public class ExecutionService {
         private final ChronoUnit unit;
         private final String label;
 
-        Range(int buckets, long stepSeconds, ChronoUnit unit, String label) {
+        Range(
+                int buckets,
+                long stepSeconds,
+                ChronoUnit unit,
+                String label) {
+
             this.buckets = buckets;
             this.stepSeconds = stepSeconds;
             this.unit = unit;
@@ -359,7 +870,12 @@ public class ExecutionService {
             if (value == null) {
                 return D7;
             }
-            return switch (value.trim().toLowerCase(java.util.Locale.ROOT)) {
+
+            return switch (
+                    value.trim()
+                            .toLowerCase(
+                                    java.util.Locale.ROOT)) {
+
                 case "24h" -> H24;
                 case "30d" -> D30;
                 case "90d" -> D90;
@@ -371,61 +887,126 @@ public class ExecutionService {
     // ---- helpers ---------------------------------------------------------
 
     /** Fetch scoped to the caller's org, or 404. The single choke point for tenant isolation. */
-    private WorkflowExecution require(FlowOpsPrincipal principal, UUID executionId) {
+    private WorkflowExecution require(
+            FlowOpsPrincipal principal,
+            UUID executionId) {
+
         return executions
-                .findByIdAndOrganizationId(executionId, principal.organizationId())
-                .orElseThrow(() -> new ApiException(ErrorCode.EXECUTION_NOT_FOUND));
+                .findByIdAndOrganizationId(
+                        executionId,
+                        principal.organizationId())
+                .orElseThrow(
+                        () -> new ApiException(
+                                ErrorCode.EXECUTION_NOT_FOUND));
     }
 
-    private ExecutionDetailResponse detail(WorkflowExecution execution, String workflowName) {
-        List<ExecutionNodeResponse> nodeDtos = nodes
-                .findByExecutionIdOrderByCreatedAtAsc(execution.getId())
-                .stream().map(ExecutionNodeResponse::of).toList();
-        List<ExecutionLogResponse> logDtos = logs
-                .findByExecutionIdOrderBySeqAsc(execution.getId())
-                .stream().map(ExecutionLogResponse::of).toList();
-        return ExecutionDetailResponse.of(execution, workflowName, nodeDtos, logDtos);
+    private ExecutionDetailResponse detail(
+            WorkflowExecution execution,
+            String workflowName) {
+
+        List<ExecutionNodeResponse> nodeDtos =
+                nodes.findByExecutionIdOrderByCreatedAtAsc(
+                                execution.getId())
+                        .stream()
+                        .map(ExecutionNodeResponse::of)
+                        .toList();
+
+        List<ExecutionLogResponse> logDtos =
+                logs.findByExecutionIdOrderBySeqAsc(
+                                execution.getId())
+                        .stream()
+                        .map(ExecutionLogResponse::of)
+                        .toList();
+
+        return ExecutionDetailResponse.of(
+                execution,
+                workflowName,
+                nodeDtos,
+                logDtos);
     }
 
-    private String workflowName(UUID organizationId, UUID workflowId) {
-        return workflows.findByIdAndOrganizationId(workflowId, organizationId)
+    /**
+     * Builds a terminal cancellation response without querying execution nodes
+     * or logs. Terminal cancellation is intentionally a true no-op.
+     */
+    private ExecutionDetailResponse detailWithoutNodes(
+            WorkflowExecution execution,
+            String workflowName) {
+
+        return ExecutionDetailResponse.of(
+                execution,
+                workflowName,
+                List.of(),
+                List.of());
+    }
+
+    private String workflowName(
+            UUID organizationId,
+            UUID workflowId) {
+
+        return workflows
+                .findByIdAndOrganizationId(
+                        workflowId,
+                        organizationId)
                 .map(Workflow::getName)
                 .orElse(null);
     }
 
     private GraphDocument parse(JsonNode graph) {
         try {
-            return mapper.treeToValue(graph, GraphDocument.class);
+            return mapper.treeToValue(
+                    graph,
+                    GraphDocument.class);
         } catch (Exception unreadable) {
-            throw new ApiException(ErrorCode.WORKFLOW_INVALID);
+            throw new ApiException(
+                    ErrorCode.WORKFLOW_INVALID);
         }
     }
 
-    private TriggerType triggerTypeOf(GraphDocument graph) {
+    private TriggerType triggerTypeOf(
+            GraphDocument graph) {
+
         for (GraphNode node : graph.nodes()) {
-            boolean isTrigger = nodeRegistry.find(node.type())
-                    .map(NodeDefinition::trigger)
-                    .orElse(false);
+            boolean isTrigger =
+                    nodeRegistry
+                            .find(node.type())
+                            .map(NodeDefinition::trigger)
+                            .orElse(false);
+
             if (isTrigger) {
-                return "webhook_trigger".equals(node.type()) ? TriggerType.WEBHOOK : TriggerType.MANUAL;
+                return "webhook_trigger".equals(node.type())
+                        ? TriggerType.WEBHOOK
+                        : TriggerType.MANUAL;
             }
         }
+
         return TriggerType.MANUAL;
     }
 
     private String labelOf(GraphNode node) {
-        Object label = node.data().get("label");
-        if (label instanceof String text && !text.isBlank()) {
+        Object label =
+                node.data().get("label");
+
+        if (label instanceof String text
+                && !text.isBlank()) {
+
             return text;
         }
-        return nodeRegistry.find(node.type()).map(NodeDefinition::label).orElse(node.type());
+
+        return nodeRegistry
+                .find(node.type())
+                .map(NodeDefinition::label)
+                .orElse(node.type());
     }
 
     private int clampLimit(Integer limit) {
         if (limit == null || limit <= 0) {
             return DEFAULT_LIMIT;
         }
-        return Math.min(limit, MAX_LIMIT);
+
+        return Math.min(
+                limit,
+                MAX_LIMIT);
     }
 
     /**
@@ -435,12 +1016,13 @@ public class ExecutionService {
      */
     private void enqueueAfterCommit(UUID executionId) {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    queue.enqueue(executionId);
-                }
-            });
+            TransactionSynchronizationManager.registerSynchronization(
+                    new TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            queue.enqueue(executionId);
+                        }
+                    });
         } else {
             queue.enqueue(executionId);
         }
