@@ -4,10 +4,13 @@ import * as React from "react";
 import {
   CheckCircle2,
   Maximize,
+  Play,
   Redo2,
   Rocket,
   Save,
+  Sparkles,
   Undo2,
+  Webhook,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
@@ -35,6 +38,9 @@ interface ToolbarProps {
   savePending: boolean;
   validatePending: boolean;
   namePending: boolean;
+  /** A published version exists, so there is something to run. */
+  canRun: boolean;
+  runPending: boolean;
   onRename: (name: string) => void;
   onUndo: () => void;
   onRedo: () => void;
@@ -44,6 +50,12 @@ interface ToolbarProps {
   onValidate: () => void;
   onSave: () => void;
   onPublish: () => void;
+  onRun: () => void;
+  onGenerate: () => void;
+  /** Open the inbound-webhook manager. Rendered only when the graph has a webhook trigger. */
+  onWebhook: () => void;
+  /** The graph contains a `webhook_trigger` node, so an inbound webhook is meaningful. */
+  hasWebhookTrigger: boolean;
 }
 
 const statusVariant: Record<
@@ -56,14 +68,14 @@ const statusVariant: Record<
 };
 
 /**
- * Top bar: workflow identity + graph history + zoom + the three lifecycle
- * actions (Validate / Save / Publish). Presentational — all state lives on the
+ * Top bar: workflow identity + graph history + zoom + the lifecycle actions
+ * (Validate / Save / Publish / Run). Presentational — all state lives on the
  * page; the toolbar just fires callbacks.
  */
 export function Toolbar(props: ToolbarProps) {
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="flex h-14 shrink-0 items-center gap-3 border-b border-border/60 bg-background px-3">
+      <div className="flex h-14 shrink-0 items-center gap-3 border-b border-white/[0.075] bg-[#0a0a0a] px-3">
         <NameField
           name={props.name}
           pending={props.namePending}
@@ -122,12 +134,27 @@ export function Toolbar(props: ToolbarProps) {
           <Button
             variant="outline"
             size="sm"
+            onClick={props.onGenerate}
+            className="text-primary"
+          >
+            <Sparkles className="size-4" />
+            Create with AI
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             onClick={props.onValidate}
             disabled={props.validatePending}
           >
             <CheckCircle2 className="size-4" />
             {props.validatePending ? "Validating…" : "Validate"}
           </Button>
+          {props.hasWebhookTrigger && (
+            <Button variant="outline" size="sm" onClick={props.onWebhook}>
+              <Webhook className="size-4" />
+              Webhook
+            </Button>
+          )}
           <Button
             variant="secondary"
             size="sm"
@@ -141,6 +168,29 @@ export function Toolbar(props: ToolbarProps) {
             <Rocket className="size-4" />
             Publish
           </Button>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              {/* Span wrapper so the tooltip still fires while the button is
+                  disabled (a disabled button swallows pointer events). */}
+              <span tabIndex={props.canRun ? -1 : 0}>
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={props.onRun}
+                  disabled={!props.canRun || props.runPending}
+                >
+                  <Play className="size-4" />
+                  {props.runPending ? "Starting…" : "Run"}
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>
+              {props.canRun
+                ? "Run the latest published version"
+                : "Publish a version to run it"}
+            </TooltipContent>
+          </Tooltip>
         </div>
       </div>
     </TooltipProvider>

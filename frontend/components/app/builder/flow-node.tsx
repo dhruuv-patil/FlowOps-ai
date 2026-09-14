@@ -46,9 +46,11 @@ function FlowNodeComponent({ id, type, data, selected }: NodeProps) {
   return (
     <div
       className={cn(
-        "relative min-w-[180px] rounded-lg border bg-card text-card-foreground shadow-sm transition-shadow",
-        selected ? "border-primary ring-2 ring-primary/40" : "border-border",
-        hasError && "border-destructive ring-2 ring-destructive/50",
+        "relative min-w-[180px] rounded-xl border border-white/[0.10] bg-[#0c0c0c] text-white/80 shadow-card transition-all",
+        selected
+          ? "border-white/[0.20] ring-1 ring-white/[0.10]"
+          : "hover:border-white/[0.10]",
+        hasError && "border-red-500/60 ring-1 ring-red-500/30",
       )}
     >
       {/* Input — triggers have no upstream, so no target handle. */}
@@ -56,17 +58,17 @@ function FlowNodeComponent({ id, type, data, selected }: NodeProps) {
         <Handle
           type="target"
           position={Position.Top}
-          className="!size-2.5 !border-2 !border-background !bg-muted-foreground"
+          className="!size-2.5 !border-2 !border-background !bg-brand-500"
         />
       )}
 
       <div className="flex items-center gap-2.5 px-3 py-2.5">
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-brand-500/15 text-brand-500">
           <Icon className="size-4" />
         </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium">{label}</span>
-          <span className="block truncate font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+          <span className="block truncate font-mono text-[10px] uppercase tracking-wide text-white/40">
             {def?.category ?? type}
           </span>
         </span>
@@ -75,11 +77,11 @@ function FlowNodeComponent({ id, type, data, selected }: NodeProps) {
       {/* Outputs. Single output → one centered handle; multiple → labelled and
           spread across the bottom edge. */}
       {multiOut ? (
-        <div className="flex items-stretch border-t border-border/60">
+        <div className="flex items-stretch border-t border-white/[0.075]">
           {outputs.map((out, i) => (
             <div
               key={out}
-              className="relative flex-1 px-2 py-1 text-center text-[10px] font-medium text-muted-foreground"
+              className="relative flex-1 px-2 py-1 text-center text-[10px] font-medium text-white/40"
             >
               {out}
               <Handle
@@ -87,7 +89,7 @@ function FlowNodeComponent({ id, type, data, selected }: NodeProps) {
                 type="source"
                 position={Position.Bottom}
                 style={{ left: `${((i + 0.5) / outputs.length) * 100}%` }}
-                className="!size-2.5 !border-2 !border-background !bg-primary"
+                className="!size-2.5 !border-2 !border-background !bg-brand-500"
               />
             </div>
           ))}
@@ -97,7 +99,7 @@ function FlowNodeComponent({ id, type, data, selected }: NodeProps) {
           id={outputs[0]}
           type="source"
           position={Position.Bottom}
-          className="!size-2.5 !border-2 !border-background !bg-primary"
+          className="!size-2.5 !border-2 !border-background !bg-brand-500"
         />
       )}
     </div>

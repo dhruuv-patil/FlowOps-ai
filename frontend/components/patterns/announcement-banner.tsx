@@ -66,11 +66,11 @@ export function AnnouncementBanner({
     <div
       role="status"
       className={cn(
-        "flex items-center gap-3 rounded-lg border border-primary/25 bg-primary/10 px-4 py-3 text-sm",
+        "flex items-center gap-3 rounded-lg border border-white/[0.10] bg-white/[0.03] px-4 py-3 text-sm",
         className,
       )}
     >
-      <Sparkles className="size-4 shrink-0 text-primary" />
+      <Sparkles className="size-4 shrink-0 text-white/50" />
 
       <p className="flex-1 leading-relaxed text-foreground">
         {title && <span className="font-medium">{title} </span>}
@@ -80,7 +80,7 @@ export function AnnouncementBanner({
       {actionHref && (
         <a
           href={actionHref}
-          className="inline-flex shrink-0 items-center gap-1 font-mono text-xs text-primary underline-offset-4 hover:underline"
+          className="inline-flex shrink-0 items-center gap-1 font-mono text-xs text-white/60 underline-offset-4 hover:text-white/90 hover:underline"
         >
           {actionLabel}
           <ArrowRight className="size-3" />

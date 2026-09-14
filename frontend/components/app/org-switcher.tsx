@@ -48,24 +48,24 @@ export function OrgSwitcher({ collapsed }: { collapsed?: boolean }) {
     <DropdownMenu>
       <DropdownMenuTrigger
         className={cn(
-          "flex w-full items-center gap-2 rounded-md border border-border bg-card px-2 py-2 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          "flex w-full items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-1.5 text-left text-[13px] transition-colors duration-[180ms] hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/[0.15]",
           collapsed && "justify-center px-0",
         )}
       >
-        <span className="flex size-6 shrink-0 items-center justify-center rounded bg-primary/15 text-xs font-semibold text-primary">
+        <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-white/[0.06] text-[10px] font-semibold text-white/60">
           {initialsFrom(current.name)}
         </span>
         {!collapsed && (
           <>
-            <span className="min-w-0 flex-1 truncate font-medium">
+            <span className="min-w-0 flex-1 truncate font-medium text-white/80">
               {current.name}
             </span>
-            <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground" />
+            <ChevronsUpDown className="size-3.5 shrink-0 text-white/30" />
           </>
         )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-64">
-        <DropdownMenuLabel>Organizations</DropdownMenuLabel>
+        <DropdownMenuLabel className="text-white/50">Organizations</DropdownMenuLabel>
         <DropdownMenuSeparator />
         {memberships.map((m) => (
           <DropdownMenuItem
@@ -76,22 +76,22 @@ export function OrgSwitcher({ collapsed }: { collapsed?: boolean }) {
             }}
             className="gap-2"
           >
-            <span className="flex size-6 shrink-0 items-center justify-center rounded bg-primary/15 text-xs font-semibold text-primary">
+            <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-white/[0.06] text-[10px] font-semibold text-white/60">
               {initialsFrom(m.organizationName)}
             </span>
             <span className="min-w-0 flex-1 truncate">{m.organizationName}</span>
-            <span className="text-xs text-muted-foreground">{m.role}</span>
+            <span className="text-xs text-white/40">{m.role}</span>
             {switching === m.organizationId ? (
               <Loader2 className="size-4 animate-spin" />
             ) : (
               m.organizationId === current.id && (
-                <Check className="size-4 text-primary" />
+                <Check className="size-4 text-white/70" />
               )
             )}
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
-        <DropdownMenuItem disabled className="gap-2 text-muted-foreground">
+        <DropdownMenuItem disabled className="gap-2 text-white/25">
           <Plus className="size-4" />
           New organization
           <span className="ml-auto text-xs">Soon</span>

@@ -1,158 +1,174 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { Plus, Search, Workflow as WorkflowIcon } from "lucide-react";
-
+import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
+import { ArrowRight, Calendar, Plus, Search, Workflow } from "lucide-react";
 import { fetchWorkflows } from "@/lib/api";
-import type { WorkflowStatus } from "@/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CreateWorkflowDialog } from "@/components/app/create-workflow-dialog";
+import {
+  Reveal,
+  StaggerGroup,
+  StaggerItem,
+} from "@/components/motion/motion-primitives";
+import { HoverLift } from "@/components/motion/motion-primitives";
 
-const STATUS_FILTERS: { label: string; value: WorkflowStatus | "ALL" }[] = [
-  { label: "Active", value: "ALL" },
-  { label: "Draft", value: "DRAFT" },
-  { label: "Published", value: "PUBLISHED" },
-  { label: "Archived", value: "ARCHIVED" },
-];
-
-function statusVariant(status: WorkflowStatus) {
-  switch (status) {
-    case "PUBLISHED":
-      return "success" as const;
-    case "DRAFT":
-      return "secondary" as const;
-    default:
-      return "outline" as const;
-  }
-}
+type StatusFilter = "ALL" | "DRAFT" | "PUBLISHED";
 
 export default function WorkflowsPage() {
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState<WorkflowStatus | "ALL">("ALL");
+  const [filter, setFilter] = useState<StatusFilter>("ALL");
   const [createOpen, setCreateOpen] = useState(false);
 
-  const query = useQuery({
-    queryKey: ["workflows", { search, status }],
-    queryFn: () =>
-      fetchWorkflows({
-        search: search.trim() || undefined,
-        status: status === "ALL" ? undefined : status,
-      }),
-    placeholderData: keepPreviousData,
+  const workflows = useQuery({
+    queryKey: ["workflows"],
+    queryFn: () => fetchWorkflows(),
   });
 
-  const workflows = query.data?.workflows ?? [];
+  const items = (workflows.data?.workflows ?? [])
+    .filter((w) => {
+      if (filter !== "ALL" && w.status !== filter) return false;
+      if (search && !w.name.toLowerCase().includes(search.toLowerCase()))
+        return false;
+      return true;
+    });
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Workflows</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Build, validate, and publish automation workflows.
-          </p>
-        </div>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus className="size-4" /> New workflow
-        </Button>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 sm:max-w-xs">
-          <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search workflows…"
-            className="pl-9"
-          />
-        </div>
-        <div className="flex gap-1">
-          {STATUS_FILTERS.map((f) => (
-            <button
-              key={f.value}
-              type="button"
-              onClick={() => setStatus(f.value)}
-              className={cn(
-                "rounded-md px-3 py-1.5 text-sm transition-colors",
-                status === f.value
-                  ? "bg-accent font-medium text-accent-foreground"
-                  : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-              )}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {query.isPending ? (
-        <div className="space-y-2">
-          <Skeleton className="h-16 w-full" />
-          <Skeleton className="h-16 w-full" />
-          <Skeleton className="h-16 w-full" />
-        </div>
-      ) : query.isError ? (
-        <p className="text-sm text-destructive">
-          Could not load workflows. Please try again.
-        </p>
-      ) : workflows.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border/60 py-16 text-center">
-          <WorkflowIcon className="size-10 text-muted-foreground/40" />
+    <div className="mx-auto max-w-5xl space-y-6">
+      <Reveal>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="font-medium">
-              {search || status !== "ALL"
-                ? "No workflows match your filters."
-                : "No workflows yet."}
-            </p>
-            <p className="text-sm text-muted-foreground">
-              Create your first workflow to get started.
+            <p className="mono-eyebrow">Workspace</p>
+            <h1 className="mt-1 text-xl font-semibold tracking-tight text-white/90">Workflows</h1>
+            <p className="mt-1 text-sm text-white/44">
+              {workflows.data?.workflows.length ?? 0} workflows total
             </p>
           </div>
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus className="size-4" /> New workflow
+          <Button onClick={() => setCreateOpen(true)} className="gap-2">
+            <Plus className="size-4" />
+            New Workflow
           </Button>
         </div>
-      ) : (
-        <ul className="divide-y divide-border/60 overflow-hidden rounded-lg border border-border/60">
-          {workflows.map((w) => (
-            <li key={w.id}>
-              <Link
-                href={`/workflows/${w.id}`}
-                className="flex items-center gap-4 px-4 py-3 transition-colors hover:bg-accent/40"
+      </Reveal>
+
+      {/* Filters */}
+      <Reveal delay={0.1} distance={15}>
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-white/30" />
+            <Input
+              placeholder="Search workflows…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9 border-white/[0.08] bg-white/[0.04] text-white/80 placeholder:text-white/30"
+            />
+          </div>
+          <div className="flex gap-1 rounded-full border border-white/[0.08] bg-white/[0.03] p-0.5">
+            {(["ALL", "DRAFT", "PUBLISHED"] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => setFilter(s)}
+                className={cn(
+                  "rounded-full px-3 py-1.5 text-xs font-medium transition-all",
+                  filter === s
+                    ? "bg-white text-[#050505]"
+                    : "text-white/50 hover:text-white/80",
+                )}
               >
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-                  <WorkflowIcon className="size-4" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-2">
-                    <span className="truncate font-medium">{w.name}</span>
-                    <Badge variant={statusVariant(w.status)}>
-                      {w.status.toLowerCase()}
-                    </Badge>
-                  </span>
-                  <span className="block truncate text-sm text-muted-foreground">
-                    {w.description || "No description"}
-                  </span>
-                </span>
-                <span className="hidden shrink-0 text-right text-xs text-muted-foreground sm:block">
-                  <span className="block">
-                    {w.nodeCount} {w.nodeCount === 1 ? "node" : "nodes"}
-                  </span>
-                  {w.latestVersion != null && (
-                    <span className="block">v{w.latestVersion}</span>
-                  )}
-                </span>
-              </Link>
-            </li>
+                {s === "ALL" ? "All" : s.charAt(0) + s.slice(1).toLowerCase()}
+              </button>
+            ))}
+          </div>
+        </div>
+      </Reveal>
+
+      {/* Grid */}
+      {workflows.isLoading ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Card key={i}>
+              <CardContent className="p-5">
+                <Skeleton className="mb-3 h-4 w-32" />
+                <Skeleton className="mb-4 h-3 w-48" />
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                  <Skeleton className="h-4 w-20" />
+                </div>
+              </CardContent>
+            </Card>
           ))}
-        </ul>
+        </div>
+      ) : items.length === 0 ? (
+        <Reveal>
+          <Card className="rounded-xl border border-dashed border-white/[0.10] py-16 text-center bg-transparent">
+            <CardContent>
+              <Workflow className="mx-auto mb-4 size-10 text-white/20" />
+              <p className="text-sm text-white/40">
+                {search || filter !== "ALL"
+                  ? "No workflows match your filters."
+                  : "No workflows yet. Create your first one."}
+              </p>
+              {!search && filter === "ALL" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-4"
+                  onClick={() => setCreateOpen(true)}
+                >
+                  <Plus className="size-3.5 mr-1" />
+                  Create Workflow
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        </Reveal>
+      ) : (
+        <StaggerGroup stagger={0.06}>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {items.map((w) => (
+              <StaggerItem key={w.id} distance={16}>
+                <HoverLift scale={1.015} y={-3}>
+                  <Link href={`/workflows/${w.id}`}>
+                    <Card className="h-full hoverable group cursor-pointer bg-[#0a0a0a] border border-white/[0.08]">
+                      <CardContent className="p-5">
+                        <div className="flex items-start justify-between">
+                          <h3 className="font-medium text-white/90 group-hover:text-white transition-colors truncate">
+                            {w.name}
+                          </h3>
+                          <ArrowRight className="size-4 text-white/20 group-hover:text-white/60 transition-colors shrink-0 mt-0.5" />
+                        </div>
+                        <p className="mt-1 text-sm text-white/40 line-clamp-2">
+                          {w.description || "No description"}
+                        </p>
+                        <div className="mt-4 flex items-center gap-2">
+                          <Badge
+                            variant={
+                              w.status === "PUBLISHED" ? "success" : "secondary"
+                            }
+                          >
+                            {w.status.toLowerCase()}
+                          </Badge>
+                          <span className="flex items-center gap-1 text-xs text-white/30">
+                            <Calendar className="size-3" />
+                            {w.updatedAt
+                              ? new Date(w.updatedAt).toLocaleDateString()
+                              : "—"}
+                          </span>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </Link>
+                </HoverLift>
+              </StaggerItem>
+            ))}
+          </div>
+        </StaggerGroup>
       )}
 
       <CreateWorkflowDialog open={createOpen} onOpenChange={setCreateOpen} />

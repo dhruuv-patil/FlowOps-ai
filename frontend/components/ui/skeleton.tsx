@@ -1,16 +1,18 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
-/** Loading placeholder. Size it with `className` at the call site. */
+/** Loading placeholder with a shimmer sweep. Size it with `className`. */
 const Skeleton = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn("animate-pulse rounded-md bg-muted", className)}
+    className={cn("relative overflow-hidden rounded-md bg-white/[0.06]", className)}
     {...props}
-  />
+  >
+    <div className="absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-background/60 to-transparent" />
+  </div>
 ));
 Skeleton.displayName = "Skeleton";
 

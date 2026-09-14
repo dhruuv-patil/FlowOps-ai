@@ -51,7 +51,7 @@ export function CodeBlock({ code, language, className }: CodeBlockProps) {
   return (
     <div
       className={cn(
-        "group relative overflow-hidden rounded-lg border border-border bg-card",
+        "group relative overflow-hidden rounded-lg border border-white/[0.08] bg-[#050505]",
         className,
       )}
     >

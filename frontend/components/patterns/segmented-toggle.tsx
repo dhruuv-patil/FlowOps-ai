@@ -53,7 +53,7 @@ export function SegmentedToggle({
     <div
       role="radiogroup"
       aria-label={label}
-      className={cn("inline-flex flex-wrap items-center gap-2", className)}
+      className={cn("inline-flex items-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.03] p-0.5", className)}
     >
       {options.map((option) => {
         const active = option.value === selected;
@@ -67,12 +67,12 @@ export function SegmentedToggle({
             disabled={option.disabled}
             onClick={() => select(option.value)}
             className={cn(
-              "inline-flex items-center gap-2 rounded-md border px-3 py-1.5 font-mono text-xs transition-colors",
+              "inline-flex items-center gap-2 rounded-full px-3 py-1.5 font-mono text-xs transition-colors",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
               "disabled:pointer-events-none disabled:opacity-50",
               active
-                ? "border-primary/50 bg-primary/15 text-foreground"
-                : "border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground",
+                ? "bg-white text-[#050505]"
+                : "text-white/50 hover:text-white/80",
             )}
           >
             {option.icon && (

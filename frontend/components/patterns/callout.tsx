@@ -12,9 +12,9 @@ const calloutVariants = cva(
   {
     variants: {
       variant: {
-        info: "border-primary/25 bg-primary/10 text-foreground",
-        warning: "border-warning/30 bg-warning/10 text-foreground",
-        success: "border-success/30 bg-success/10 text-foreground",
+        info: "border-white/[0.10] bg-white/[0.03] text-white/70",
+        warning: "border-amber-500/[0.20] bg-amber-500/[0.06] text-[#facc15]",
+        success: "border-emerald-500/[0.20] bg-emerald-500/[0.06] text-[#4ade80]",
       },
     },
     defaultVariants: { variant: "info" },
@@ -28,9 +28,9 @@ const ICONS = {
 } as const;
 
 const ICON_TONE = {
-  info: "text-primary",
-  warning: "text-warning",
-  success: "text-success",
+  info: "text-white/50",
+  warning: "text-[#facc15]",
+  success: "text-[#4ade80]",
 } as const;
 
 export interface CalloutProps
@@ -63,7 +63,7 @@ export function Callout({
           href={linkHref}
           target="_blank"
           rel="noreferrer"
-          className="inline-flex shrink-0 items-center gap-1 font-mono text-xs text-primary underline-offset-4 hover:underline"
+          className="inline-flex shrink-0 items-center gap-1 font-mono text-xs text-white/60 underline-offset-4 hover:text-white/90 hover:underline"
         >
           {linkLabel}
           <ArrowUpRight className="size-3" />

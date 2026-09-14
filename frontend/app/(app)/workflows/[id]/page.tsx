@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Background,
@@ -25,11 +25,13 @@ import {
   fetchWorkflow,
   getErrorMessage,
   publishWorkflow,
+  runWorkflow,
   saveWorkflowGraph,
   updateWorkflow,
   validateWorkflow,
 } from "@/lib/api";
 import type {
+  GenerateWorkflowResult,
   NodeDefinition,
   ValidationResult,
   WorkflowDetail,
@@ -51,6 +53,9 @@ import { ConfigPanel } from "@/components/app/builder/config-panel";
 import { Toolbar } from "@/components/app/builder/toolbar";
 import { ValidationPanel } from "@/components/app/builder/validation-panel";
 import { PublishDialog } from "@/components/app/builder/publish-dialog";
+import { GenerateWorkflowDialog } from "@/components/app/builder/generate-workflow-dialog";
+import { WebhookDialog } from "@/components/app/builder/webhook-dialog";
+import { hasRole, useAuthStore } from "@/lib/auth-store";
 
 /* ================================================================ page shell */
 
@@ -119,6 +124,7 @@ function Builder({
   nodeDefsError,
 }: BuilderProps) {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const rf = useReactFlow<FlowNodeType, FlowEdge>();
   const wrapperRef = React.useRef<HTMLDivElement>(null);
 
@@ -422,9 +428,57 @@ function Builder({
     onError: (err) => toast.error(getErrorMessage(err)),
   });
 
+  // Runs the latest published version. Explicit user action only — the app
+  // never auto-runs a workflow (contract §9). Navigates to the live run view.
+  const runMutation = useMutation({
+    mutationFn: () => runWorkflow(workflow.id),
+    onSuccess: (execution) => {
+      toast.success("Run started.");
+      router.push(`/executions/${execution.id}`);
+    },
+    onError: (err) => toast.error(getErrorMessage(err)),
+  });
+
   const doSave = React.useCallback(() => {
     if (!saveMutation.isPending) saveMutation.mutate();
   }, [saveMutation]);
+
+  // --- create with AI ------------------------------------------------------
+  const [generateOpen, setGenerateOpen] = React.useState(false);
+
+  // --- inbound webhook ------------------------------------------------------
+  const [webhookOpen, setWebhookOpen] = React.useState(false);
+  // A workflow only has a meaningful inbound webhook when its graph starts from a
+  // webhook trigger; the type key is verbatim "webhook_trigger" (see NodeRegistry).
+  const hasWebhookTrigger = React.useMemo(
+    () => nodes.some((n) => n.type === "webhook_trigger"),
+    [nodes],
+  );
+  // Generating/toggling/deleting a webhook is an ADMIN action, exactly like managing
+  // an integration; a non-admin can still open the dialog to read the masked state.
+  const canManageWebhook = hasRole(
+    useAuthStore((s) => s.currentRole),
+    "ADMIN",
+  );
+
+  // Drops an AI-generated draft onto the canvas. Records an undo point and
+  // leaves `savedRef` untouched so the canvas reads dirty — the user reviews,
+  // edits, saves, and runs manually. The generated graph is never auto-run.
+  const acceptGenerated = React.useCallback(
+    (result: GenerateWorkflowResult) => {
+      const next = graphToFlow(result.graph);
+      commit();
+      setNodes(next.nodes);
+      setEdges(next.edges);
+      setSelectedId(null);
+      window.requestAnimationFrame(() =>
+        rf.fitView({ duration: 300, padding: 0.2 }),
+      );
+      const n = next.nodes.length;
+      toast.success(`Added ${n} node${n === 1 ? "" : "s"}. Review, then save.`);
+    },
+    [commit, setNodes, setEdges, rf],
+  );
 
   // Ctrl/Cmd+S saves, Ctrl/Cmd+Z / Shift+Z undo/redo (when not in a field).
   React.useEffect(() => {
@@ -471,7 +525,7 @@ function Builder({
     <ErrorNodesContext.Provider value={errorNodeIds}>
       <NodeDefsContext.Provider value={defsByType}>
         {/* Break out of the app-shell padding to use the full content area. */}
-        <div className="-mx-6 -my-6 flex h-[calc(100vh-4rem)] flex-col lg:-mx-8">
+        <div className="-mx-5 -my-5 flex h-[calc(100vh-4rem)] flex-col lg:-mx-6">
           <Toolbar
             name={name}
             status={status}
@@ -482,6 +536,8 @@ function Builder({
             savePending={saveMutation.isPending}
             validatePending={validateMutation.isPending}
             namePending={renameMutation.isPending}
+            canRun={version != null}
+            runPending={runMutation.isPending}
             onRename={(n) => renameMutation.mutate(n)}
             onUndo={undo}
             onRedo={redo}
@@ -494,6 +550,10 @@ function Builder({
               setPublishBlock(null);
               setPublishOpen(true);
             }}
+            onRun={() => runMutation.mutate()}
+            onGenerate={() => setGenerateOpen(true)}
+            onWebhook={() => setWebhookOpen(true)}
+            hasWebhookTrigger={hasWebhookTrigger}
           />
 
           <div className="flex min-h-0 flex-1">
@@ -526,9 +586,9 @@ function Builder({
                 multiSelectionKeyCode={["Meta", "Control", "Shift"]}
                 fitView
                 proOptions={{ hideAttribution: true }}
-                className="bg-background"
+                className="bg-[#050505]"
               >
-                <Background className="!bg-muted/20" gap={16} />
+                <Background className="!bg-white/[0.04]" gap={16} />
                 <Controls className="!shadow-md" />
                 <MiniMap
                   pannable
@@ -540,7 +600,7 @@ function Builder({
 
               {nodes.length === 0 && (
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                  <p className="rounded-md border border-dashed border-border/60 bg-background/80 px-4 py-3 text-sm text-muted-foreground">
+                  <p className="rounded-md border border-dashed border-white/[0.08] bg-[#0a0a0a]/80 px-4 py-3 text-sm text-white/40">
                     Drag a node from the left, or click one to add it.
                   </p>
                 </div>
@@ -572,6 +632,19 @@ function Builder({
           pending={publishMutation.isPending}
           blockingValidation={publishBlock}
           onPublish={(note) => publishMutation.mutate(note)}
+        />
+
+        <GenerateWorkflowDialog
+          open={generateOpen}
+          onOpenChange={setGenerateOpen}
+          onAccept={acceptGenerated}
+        />
+
+        <WebhookDialog
+          open={webhookOpen}
+          onOpenChange={setWebhookOpen}
+          workflowId={workflow.id}
+          canManage={canManageWebhook}
         />
       </NodeDefsContext.Provider>
     </ErrorNodesContext.Provider>

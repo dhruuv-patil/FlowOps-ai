@@ -41,7 +41,7 @@ export function StepTimeline({
             {!isLast && (
               <span
                 aria-hidden="true"
-                className="absolute left-[11px] top-6 h-[calc(100%+2rem)] w-px bg-border"
+                className="absolute left-[11px] top-6 h-[calc(100%+2rem)] w-px bg-white/[0.08]"
               />
             )}
 
@@ -49,8 +49,8 @@ export function StepTimeline({
             <span
               aria-hidden="true"
               className={cn(
-                "absolute left-0 top-1 flex h-[23px] w-[23px] items-center justify-center rounded-full border border-border bg-card",
-                numbered && "font-mono text-[11px] text-muted-foreground",
+                "absolute left-0 top-1 flex h-[23px] w-[23px] items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.03]",
+                numbered && "font-mono text-[11px] text-white/50",
               )}
             >
               {numbered ? (

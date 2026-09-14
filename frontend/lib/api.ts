@@ -6,29 +6,91 @@ import axios, {
 
 import { useAuthStore } from "@/lib/auth-store";
 import type {
+  AcceptInvitationBody,
+  AgentRunResult,
+  AiAgentBody,
+  AiAgentDetail,
+  AiAgentsResponse,
   ApiError,
+  AuditAction,
+  AuditLogsResponse,
   AuthResponse,
+  ChangeMemberRoleBody,
+  ChangePasswordBody,
+  ConnectIntegrationBody,
+  ConnectProviderBody,
+  ConnectionTestResult,
   CreateOrganizationResponse,
   CurrentOrganizationResponse,
+  CredentialField,
   ErrorCode,
   ExecutionDetail,
+  ExecutionEvent,
+  ExecutionEventsResponse,
   ExecutionStats,
   ExecutionStatus,
   ExecutionsResponse,
+  ExternalWorkflow,
   FieldError,
+  GenerateWorkflowResult,
+  Integration,
+  IntegrationsResponse,
+  InvitationSecret,
+  LogLevel,
+  LogsResponse,
+  MonitorActionResponse,
+  MonitoredWorkflowsResponse,
+  NotificationsResponse,
+  InvitationsResponse,
+  InviteMemberBody,
   OrganizationMembersResponse,
   OrganizationsResponse,
+  ProvidersResponse,
+  ProviderInfo,
+  ProviderCapabilities,
+  ProviderType,
   PublishResult,
+  Role,
   SessionResponse,
+  SetWebhookEnabledBody,
   StatsRange,
+  SyncActionResponse,
+  SyncStatusResponse,
+  TemplatesResponse,
   ValidationResult,
+  WebhookResponse,
+  WebhookSecret,
   WorkflowDetail,
   WorkflowGraph,
   WorkflowStatus,
   WorkflowsResponse,
+  WorkflowTemplateDetail,
   WorkflowVersion,
   WorkflowVersionsResponse,
   NodeTypesResponse,
+
+  // Reliability
+  AnomalyDetail,
+  AnomalyDetailResponse,
+  AnomaliesResponse,
+  AnomalySeverity,
+  AnomalyStatus,
+  AnomalySummary,
+  AnomalyType,
+  AcknowledgeRequest,
+  AcknowledgeResponse,
+  ResolveRequest,
+  ResolveResponse,
+  FalsePositiveRequest,
+  FalsePositiveResponse,
+  WorkflowHealth,
+  WorkflowHealthResponse,
+  WorkflowMetrics,
+  WorkflowMetricsResponse,
+  AIInvestigationResult,
+  InvestigateRequest,
+  InvestigateResponse,
+SendTestResult,
 } from "@/types";
 
 export const API_BASE_URL =
@@ -40,6 +102,10 @@ const NO_REFRESH_PATHS = [
   "/api/auth/login",
   "/api/auth/logout",
   "/api/auth/register",
+  // Sent from a logged-out browser, so a 401 on these must never be treated as a
+  // stale-token refresh trigger.
+  "/api/auth/forgot-password",
+  "/api/auth/reset-password",
 ];
 
 /** 401 codes that are terminal: clear the store and go to /login, never retry. */
@@ -85,10 +151,15 @@ const refreshClient = axios.create({
  */
 export function getApiError(error: unknown): ApiError["error"] | null {
   if (!axios.isAxiosError(error)) return null;
+
   const data = (error as AxiosError<ApiError>).response?.data;
+
   if (!data || typeof data !== "object") return null;
+
   const envelope = (data as ApiError).error;
+
   if (!envelope || typeof envelope.code !== "string") return null;
+
   return envelope;
 }
 
@@ -106,10 +177,13 @@ export function getErrorMessage(
   fallback = "Something went wrong. Please try again.",
 ): string {
   const envelope = getApiError(error);
+
   if (envelope?.message) return envelope.message;
+
   if (axios.isAxiosError(error) && !error.response) {
     return "Cannot reach the FlowOps API. Check that the server is running.";
   }
+
   return fallback;
 }
 
@@ -118,26 +192,54 @@ export function getErrorMessage(
  * JSON field name. Empty for every other code, so callers can render a
  * form-level message instead.
  */
-export function getFieldErrors(error: unknown): Record<string, string> {
+export function getFieldErrors(
+  error: unknown,
+): Record<string, string> {
   const envelope = getApiError(error);
-  if (envelope?.code !== "VALIDATION_ERROR" || !envelope.fieldErrors) return {};
+
+  if (
+    envelope?.code !== "VALIDATION_ERROR" ||
+    !envelope.fieldErrors
+  ) {
+    return {};
+  }
+
   const out: Record<string, string> = {};
+
   for (const fe of envelope.fieldErrors as FieldError[]) {
     // First message per field wins; the backend may send several and order is
     // not guaranteed.
-    if (!(fe.field in out)) out[fe.field] = fe.message;
+    if (!(fe.field in out)) {
+      out[fe.field] = fe.message;
+    }
   }
+
   return out;
 }
 
 /* --------------------------------------------------------------- redirects */
 
-function redirectToLogin() {
+/**
+ * Validates that a redirect target is a relative in-app path (no open redirect).
+ * Allows paths starting with `/` but not `//` (protocol-relative) or absolute URLs.
+ */
+function isSafeRedirectPath(path: string): boolean {
+  if (!path.startsWith("/")) return false;
+  if (path.startsWith("//")) return false; // protocol-relative
+  return true;
+}
+
+function redirectToLogin(next?: string) {
   if (typeof window === "undefined") return;
+
   if (window.location.pathname === "/login") return;
+
   // A hard navigation is intentional: it guarantees no in-memory tenant data
   // from the dead session survives into the login screen.
-  window.location.replace("/login");
+  const currentPath = window.location.pathname + window.location.search;
+  const safeNext = next && isSafeRedirectPath(next) ? next : currentPath;
+  const encodedNext = encodeURIComponent(safeNext);
+  window.location.replace(`/login?next=${encodedNext}`);
 }
 
 /* ---------------------------------------------------- single-flight refresh */
@@ -164,6 +266,7 @@ export function refreshSession(): Promise<AuthResponse> {
         refreshPromise = null;
       });
   }
+
   return refreshPromise;
 }
 
@@ -189,16 +292,21 @@ export async function bootstrapSession(): Promise<boolean> {
 
 api.interceptors.request.use((config) => {
   const token = useAuthStore.getState().accessToken;
+
   if (token) {
     config.headers.set("Authorization", `Bearer ${token}`);
   }
+
   return config;
 });
 
 api.interceptors.response.use(
   (response: AxiosResponse) => response,
+
   async (error: AxiosError<ApiError>) => {
-    const config = error.config as RetryableConfig | undefined;
+    const config =
+      error.config as RetryableConfig | undefined;
+
     const status = error.response?.status;
 
     if (!config || status !== 401) {
@@ -206,13 +314,21 @@ api.interceptors.response.use(
     }
 
     const url = config.url ?? "";
-    if (NO_REFRESH_PATHS.some((p) => url.startsWith(p))) {
+
+    if (
+      NO_REFRESH_PATHS.some((p) =>
+        url.startsWith(p),
+      )
+    ) {
       return Promise.reject(error);
     }
 
     const code = getErrorCode(error);
 
-    if (code && TERMINAL_CODES.has(code)) {
+    if (
+      code &&
+      TERMINAL_CODES.has(code)
+    ) {
       useAuthStore.getState().clearAuth();
       redirectToLogin();
       return Promise.reject(error);
@@ -220,7 +336,10 @@ api.interceptors.response.use(
 
     // `TOKEN_EXPIRED` is the designed refresh trigger. A 401 with no readable
     // envelope is treated the same way — one refresh attempt, then terminal.
-    if (code !== null && code !== "TOKEN_EXPIRED") {
+    if (
+      code !== null &&
+      code !== "TOKEN_EXPIRED"
+    ) {
       return Promise.reject(error);
     }
 
@@ -234,6 +353,7 @@ api.interceptors.response.use(
 
     try {
       await refreshSession();
+
       // Replaying through `api.request` re-runs the request interceptor, which
       // overwrites the stale Authorization header with the freshly minted token.
       return await api.request(config);
@@ -263,15 +383,27 @@ export interface LoginPayload {
 export async function register(
   payload: RegisterPayload,
 ): Promise<AuthResponse> {
-  const { data } = await api.post<AuthResponse>("/api/auth/register", payload);
+  const { data } = await api.post<AuthResponse>(
+    "/api/auth/register",
+    payload,
+  );
+
   useAuthStore.getState().setAuth(data);
+
   return data;
 }
 
 /** `POST /api/auth/login` → 200 `AuthResponse` + refresh cookie. */
-export async function login(payload: LoginPayload): Promise<AuthResponse> {
-  const { data } = await api.post<AuthResponse>("/api/auth/login", payload);
+export async function login(
+  payload: LoginPayload,
+): Promise<AuthResponse> {
+  const { data } = await api.post<AuthResponse>(
+    "/api/auth/login",
+    payload,
+  );
+
   useAuthStore.getState().setAuth(data);
+
   return data;
 }
 
@@ -288,23 +420,43 @@ export async function logout(): Promise<void> {
   }
 }
 
+/** `POST /api/auth/forgot-password` → 204. Always returns generic success. */
+export async function forgotPassword(payload: { email: string }): Promise<void> {
+  await api.post("/api/auth/forgot-password", payload);
+}
+
+/** `POST /api/auth/reset-password` → 204. Validates token and sets new password. */
+export async function resetPassword(payload: { token: string; newPassword: string }): Promise<void> {
+  await api.post("/api/auth/reset-password", payload);
+}
+
 /** `GET /api/auth/me` → fresh identity + tenant context from the database. */
 export async function fetchMe(): Promise<SessionResponse> {
-  const { data } = await api.get<SessionResponse>("/api/auth/me");
+  const { data } =
+    await api.get<SessionResponse>(
+      "/api/auth/me",
+    );
+
   return data;
 }
 
 /** `GET /api/organizations` → every org the authenticated user belongs to. */
 export async function fetchOrganizations(): Promise<OrganizationsResponse> {
-  const { data } = await api.get<OrganizationsResponse>("/api/organizations");
+  const { data } =
+    await api.get<OrganizationsResponse>(
+      "/api/organizations",
+    );
+
   return data;
 }
 
 /** `GET /api/organizations/current` → the org named by the token's `orgId`. */
 export async function fetchCurrentOrganization(): Promise<CurrentOrganizationResponse> {
-  const { data } = await api.get<CurrentOrganizationResponse>(
-    "/api/organizations/current",
-  );
+  const { data } =
+    await api.get<CurrentOrganizationResponse>(
+      "/api/organizations/current",
+    );
+
   return data;
 }
 
@@ -312,10 +464,12 @@ export async function fetchCurrentOrganization(): Promise<CurrentOrganizationRes
 export async function renameCurrentOrganization(
   name: string,
 ): Promise<CurrentOrganizationResponse> {
-  const { data } = await api.patch<CurrentOrganizationResponse>(
-    "/api/organizations/current",
-    { name },
-  );
+  const { data } =
+    await api.patch<CurrentOrganizationResponse>(
+      "/api/organizations/current",
+      { name },
+    );
+
   return data;
 }
 
@@ -323,10 +477,12 @@ export async function renameCurrentOrganization(
 export async function createOrganization(
   organizationName: string,
 ): Promise<CreateOrganizationResponse> {
-  const { data } = await api.post<CreateOrganizationResponse>(
-    "/api/organizations",
-    { organizationName },
-  );
+  const { data } =
+    await api.post<CreateOrganizationResponse>(
+      "/api/organizations",
+      { organizationName },
+    );
+
   return data;
 }
 
@@ -338,26 +494,132 @@ export async function createOrganization(
 export async function switchOrganization(
   organizationId: string,
 ): Promise<AuthResponse> {
-  const { data } = await api.post<AuthResponse>(
-    `/api/organizations/${organizationId}/switch`,
-  );
+  const { data } =
+    await api.post<AuthResponse>(
+      `/api/organizations/${organizationId}/switch`,
+    );
+
   useAuthStore.getState().setAuth(data);
+
   return data;
 }
 
 /** `GET /api/organizations/current/members` → readable by any role. */
 export async function fetchCurrentOrganizationMembers(): Promise<OrganizationMembersResponse> {
-  const { data } = await api.get<OrganizationMembersResponse>(
-    "/api/organizations/current/members",
-  );
+  const { data } =
+    await api.get<OrganizationMembersResponse>(
+      "/api/organizations/current/members",
+    );
+
   return data;
+}
+
+/**
+ * `PATCH /api/organizations/current/members/{userId}` → change a member's role.
+ * Requires ADMIN or OWNER.
+ */
+export async function changeMemberRole(
+  userId: string,
+  role: Role,
+): Promise<OrganizationMembersResponse> {
+  const body: ChangeMemberRoleBody = { role };
+
+  const { data } =
+    await api.patch<OrganizationMembersResponse>(
+      `/api/organizations/current/members/${userId}`,
+      body,
+    );
+
+  return data;
+}
+
+/**
+ * `DELETE /api/organizations/current/members/{userId}` → remove a member.
+ * Requires ADMIN or OWNER.
+ */
+export async function removeMember(
+  userId: string,
+): Promise<OrganizationMembersResponse> {
+  const { data } =
+    await api.delete<OrganizationMembersResponse>(
+      `/api/organizations/current/members/${userId}`,
+    );
+
+  return data;
+}
+
+/** `GET /api/organizations/current/invitations` → ADMIN/OWNER view of all invites. */
+export async function fetchInvitations(): Promise<InvitationsResponse> {
+  const { data } =
+    await api.get<InvitationsResponse>(
+      "/api/organizations/current/invitations",
+    );
+
+  return data;
+}
+
+/**
+ * `POST /api/organizations/current/invitations` → 201.
+ */
+export async function inviteMember(
+  body: InviteMemberBody,
+): Promise<InvitationSecret> {
+  const { data } =
+    await api.post<InvitationSecret>(
+      "/api/organizations/current/invitations",
+      body,
+    );
+
+  return data;
+}
+
+/** `DELETE /api/organizations/current/invitations/{id}` → 204. */
+export async function revokeInvitation(
+  invitationId: string,
+): Promise<void> {
+  await api.delete(
+    `/api/organizations/current/invitations/${invitationId}`,
+  );
+}
+
+/**
+ * `POST /api/invitations/accept` → join the invitation's org.
+ */
+export async function acceptInvitation(
+  token: string,
+): Promise<CreateOrganizationResponse> {
+  const body: AcceptInvitationBody = { token };
+
+  const { data } =
+    await api.post<CreateOrganizationResponse>(
+      "/api/invitations/accept",
+      body,
+    );
+
+  return data;
+}
+
+/**
+ * `POST /api/auth/change-password` → 204.
+ */
+export async function changePassword(
+  body: ChangePasswordBody,
+): Promise<void> {
+  await api.post(
+    "/api/auth/change-password",
+    body,
+  );
 }
 
 /* ---------------------------------------------------------------- workflows */
 
 /** `GET /api/node-types` → the global node registry for the builder palette. */
 export async function fetchNodeTypes(): Promise<NodeTypesResponse> {
-  const { data } = await api.get<NodeTypesResponse>("/api/node-types");
+  const { data } =
+    await api.get<NodeTypesResponse>(
+      "/api/node-types",
+    );
+
   return data;
 }
 
@@ -366,12 +628,17 @@ export async function fetchWorkflows(params?: {
   search?: string;
   status?: WorkflowStatus;
 }): Promise<WorkflowsResponse> {
-  const { data } = await api.get<WorkflowsResponse>("/api/workflows", {
-    params: {
-      search: params?.search || undefined,
-      status: params?.status || undefined,
-    },
-  });
+  const { data } =
+    await api.get<WorkflowsResponse>(
+      "/api/workflows",
+      {
+        params: {
+          search: params?.search || undefined,
+          status: params?.status || undefined,
+        },
+      },
+    );
+
   return data;
 }
 
@@ -380,25 +647,41 @@ export async function createWorkflow(payload: {
   name: string;
   description?: string;
 }): Promise<WorkflowDetail> {
-  const { data } = await api.post<WorkflowDetail>("/api/workflows", payload);
+  const { data } =
+    await api.post<WorkflowDetail>(
+      "/api/workflows",
+      payload,
+    );
+
   return data;
 }
 
 /** `GET /api/workflows/{id}` → workflow with its editable draft graph. */
-export async function fetchWorkflow(id: string): Promise<WorkflowDetail> {
-  const { data } = await api.get<WorkflowDetail>(`/api/workflows/${id}`);
+export async function fetchWorkflow(
+  id: string,
+): Promise<WorkflowDetail> {
+  const { data } =
+    await api.get<WorkflowDetail>(
+      `/api/workflows/${id}`,
+    );
+
   return data;
 }
 
-/** `PATCH /api/workflows/{id}` → rename / re-describe (metadata only). */
+/** `PATCH /api/workflows/{id}` → rename / re-describe. */
 export async function updateWorkflow(
   id: string,
-  payload: { name: string; description?: string },
+  payload: {
+    name: string;
+    description?: string;
+  },
 ): Promise<WorkflowDetail> {
-  const { data } = await api.patch<WorkflowDetail>(
-    `/api/workflows/${id}`,
-    payload,
-  );
+  const { data } =
+    await api.patch<WorkflowDetail>(
+      `/api/workflows/${id}`,
+      payload,
+    );
+
   return data;
 }
 
@@ -407,129 +690,750 @@ export async function saveWorkflowGraph(
   id: string,
   graph: WorkflowGraph,
 ): Promise<WorkflowDetail> {
-  const { data } = await api.put<WorkflowDetail>(`/api/workflows/${id}/graph`, {
-    graph,
-  });
+  const { data } =
+    await api.put<WorkflowDetail>(
+      `/api/workflows/${id}/graph`,
+      { graph },
+    );
+
   return data;
 }
 
-/** `POST /api/workflows/{id}/validate` → validation result, no side effects. */
-export async function validateWorkflow(id: string): Promise<ValidationResult> {
-  const { data } = await api.post<ValidationResult>(
-    `/api/workflows/${id}/validate`,
-  );
+/** `POST /api/workflows/{id}/validate` → validation result. */
+export async function validateWorkflow(
+  id: string,
+): Promise<ValidationResult> {
+  const { data } =
+    await api.post<ValidationResult>(
+      `/api/workflows/${id}/validate`,
+    );
+
   return data;
 }
 
-/** `POST /api/workflows/{id}/publish` → always 200; check `published`. */
+/** `POST /api/workflows/{id}/publish` → always 200. */
 export async function publishWorkflow(
   id: string,
   note?: string,
 ): Promise<PublishResult> {
-  const { data } = await api.post<PublishResult>(
-    `/api/workflows/${id}/publish`,
-    { note: note ?? null },
-  );
+  const { data } =
+    await api.post<PublishResult>(
+      `/api/workflows/${id}/publish`,
+      { note: note ?? null },
+    );
+
   return data;
 }
 
-/** `GET /api/workflows/{id}/versions` → published versions, newest first. */
+/** `GET /api/workflows/{id}/versions`. */
 export async function fetchWorkflowVersions(
   id: string,
 ): Promise<WorkflowVersionsResponse> {
-  const { data } = await api.get<WorkflowVersionsResponse>(
-    `/api/workflows/${id}/versions`,
-  );
+  const { data } =
+    await api.get<WorkflowVersionsResponse>(
+      `/api/workflows/${id}/versions`,
+    );
+
   return data;
 }
 
-/** `GET /api/workflows/{id}/versions/{n}` → one version including its graph. */
+/** `GET /api/workflows/{id}/versions/{n}`. */
 export async function fetchWorkflowVersion(
   id: string,
   versionNumber: number,
 ): Promise<WorkflowVersion> {
-  const { data } = await api.get<WorkflowVersion>(
-    `/api/workflows/${id}/versions/${versionNumber}`,
-  );
+  const { data } =
+    await api.get<WorkflowVersion>(
+      `/api/workflows/${id}/versions/${versionNumber}`,
+    );
+
   return data;
 }
 
 /** `DELETE /api/workflows/{id}` → 204. */
-export async function deleteWorkflow(id: string): Promise<void> {
+export async function deleteWorkflow(
+  id: string,
+): Promise<void> {
   await api.delete(`/api/workflows/${id}`);
 }
 
 /* --------------------------------------------------------------- executions */
 
 /**
- * `POST /api/workflows/{id}/run` → 201 `ExecutionDetail`. Runs the workflow's
- * latest published version; `input` is the optional trigger payload, readable
- * downstream as `{{trigger.*}}`. Only ever called from an explicit user action.
+ * `POST /api/workflows/{id}/run` → 201 `ExecutionDetail`.
  */
 export async function runWorkflow(
   workflowId: string,
   input?: unknown,
 ): Promise<ExecutionDetail> {
-  const { data } = await api.post<ExecutionDetail>(
-    `/api/workflows/${workflowId}/run`,
-    input === undefined ? {} : { input },
-  );
+  const { data } =
+    await api.post<ExecutionDetail>(
+      `/api/workflows/${workflowId}/run`,
+      input === undefined
+        ? {}
+        : { input },
+    );
+
   return data;
 }
 
-/** `GET /api/executions` → org-scoped runs, newest first, optionally filtered. */
+/**
+ * `GET /api/executions` → org-scoped native FlowOps runs.
+ */
 export async function fetchExecutions(params?: {
   workflowId?: string;
   status?: ExecutionStatus;
   limit?: number;
 }): Promise<ExecutionsResponse> {
-  const { data } = await api.get<ExecutionsResponse>("/api/executions", {
-    params: {
-      workflowId: params?.workflowId || undefined,
-      status: params?.status || undefined,
-      limit: params?.limit || undefined,
-    },
-  });
-  return data;
-}
+  const { data } =
+    await api.get<ExecutionsResponse>(
+      "/api/executions",
+      {
+        params: {
+          workflowId:
+            params?.workflowId || undefined,
+          status:
+            params?.status || undefined,
+          limit:
+            params?.limit || undefined,
+        },
+      },
+    );
 
-/** `GET /api/executions/{id}` → a run with its node states and full log. */
-export async function fetchExecution(id: string): Promise<ExecutionDetail> {
-  const { data } = await api.get<ExecutionDetail>(`/api/executions/${id}`);
   return data;
 }
 
 /**
- * `POST /api/executions/{id}/nodes/{nodeId}/decision` → resolve a waiting Human
- * Approval step and resume the run. `approved` routes down the matching port;
- * `note` is an optional reason recorded in the log.
+ * `GET /api/executions/{id}` → native FlowOps run detail.
+ */
+export async function fetchExecution(
+  id: string,
+): Promise<ExecutionDetail> {
+  const { data } =
+    await api.get<ExecutionDetail>(
+      `/api/executions/${id}`,
+    );
+
+  return data;
+}
+
+/**
+ * `GET /api/v1/execution-events` → external/provider execution events.
+ *
+ * This is intentionally separate from `/api/executions`.
+ * Native FlowOps executions are represented by `ExecutionDetail`, while
+ * monitored provider executions such as n8n are represented by
+ * `ExecutionEvent` records.
+ */
+export async function fetchExecutionEvents(params?: {
+  workflowId?: string;
+  limit?: number;
+}): Promise<ExecutionEventsResponse> {
+  const { data } =
+    await api.get<ExecutionEventsResponse>(
+      "/api/v1/execution-events",
+      {
+        params: {
+          workflowId:
+            params?.workflowId || undefined,
+          limit:
+            params?.limit || undefined,
+        },
+      },
+    );
+
+  return data;
+}
+
+/**
+ * `POST /api/executions/{id}/nodes/{nodeId}/decision`.
  */
 export async function decideApproval(
   executionId: string,
   nodeId: string,
-  decision: { approved: boolean; note?: string },
+  decision: {
+    approved: boolean;
+    note?: string;
+  },
 ): Promise<ExecutionDetail> {
-  const { data } = await api.post<ExecutionDetail>(
-    `/api/executions/${executionId}/nodes/${nodeId}/decision`,
-    { approved: decision.approved, note: decision.note ?? null },
-  );
+  const { data } =
+    await api.post<ExecutionDetail>(
+      `/api/executions/${executionId}/nodes/${nodeId}/decision`,
+      {
+        approved: decision.approved,
+        note: decision.note ?? null,
+      },
+    );
+
   return data;
 }
 
-/** `POST /api/executions/{id}/retry` → re-run a FAILED run from its failed step. */
-export async function retryExecution(id: string): Promise<ExecutionDetail> {
-  const { data } = await api.post<ExecutionDetail>(
-    `/api/executions/${id}/retry`,
-  );
+/**
+ * `POST /api/executions/{id}/retry`.
+ */
+export async function retryExecution(
+  id: string,
+): Promise<ExecutionDetail> {
+  const { data } =
+    await api.post<ExecutionDetail>(
+      `/api/executions/${id}/retry`,
+    );
+
   return data;
 }
 
-/** `GET /api/executions/stats?range=…` → dashboard KPIs + bucketed time series. */
+/**
+ * `POST /api/executions/{id}/cancel`.
+ */
+export async function cancelExecution(
+  id: string,
+): Promise<ExecutionDetail> {
+  const { data } =
+    await api.post<ExecutionDetail>(
+      `/api/executions/${id}/cancel`,
+    );
+
+  return data;
+}
+
+/**
+ * `GET /api/executions/stats?range=…`.
+ */
 export async function fetchExecutionStats(
   range: StatsRange,
 ): Promise<ExecutionStats> {
-  const { data } = await api.get<ExecutionStats>("/api/executions/stats", {
-    params: { range },
-  });
+  const { data } =
+    await api.get<ExecutionStats>(
+      "/api/executions/stats",
+      {
+        params: { range },
+      },
+    );
+
+  return data;
+}
+
+/* ---------------------------------------------------------------- ai agents */
+
+/** `GET /api/ai/agents`. */
+export async function fetchAiAgents(): Promise<AiAgentsResponse> {
+  const { data } =
+    await api.get<AiAgentsResponse>(
+      "/api/ai/agents",
+    );
+
+  return data;
+}
+
+/** `POST /api/ai/agents`. */
+export async function createAiAgent(
+  body: AiAgentBody,
+): Promise<AiAgentDetail> {
+  const { data } =
+    await api.post<AiAgentDetail>(
+      "/api/ai/agents",
+      body,
+    );
+
+  return data;
+}
+
+/** `GET /api/ai/agents/{id}`. */
+export async function fetchAiAgent(
+  id: string,
+): Promise<AiAgentDetail> {
+  const { data } =
+    await api.get<AiAgentDetail>(
+      `/api/ai/agents/${id}`,
+    );
+
+  return data;
+}
+
+/** `PATCH /api/ai/agents/{id}`. */
+export async function updateAiAgent(
+  id: string,
+  body: AiAgentBody,
+): Promise<AiAgentDetail> {
+  const { data } =
+    await api.patch<AiAgentDetail>(
+      `/api/ai/agents/${id}`,
+      body,
+    );
+
+  return data;
+}
+
+/** `DELETE /api/ai/agents/{id}` → 204. */
+export async function deleteAiAgent(
+  id: string,
+): Promise<void> {
+  await api.delete(`/api/ai/agents/${id}`);
+}
+
+/**
+ * `POST /api/ai/agents/{id}/run`.
+ */
+export async function runAiAgent(
+  id: string,
+  input?: string,
+): Promise<AgentRunResult> {
+  const { data } =
+    await api.post<AgentRunResult>(
+      `/api/ai/agents/${id}/run`,
+      {
+        input: input ?? null,
+      },
+    );
+
+  return data;
+}
+
+/**
+ * `POST /api/ai/generate-workflow`.
+ */
+export async function generateWorkflow(
+  prompt: string,
+): Promise<GenerateWorkflowResult> {
+  const { data } =
+    await api.post<GenerateWorkflowResult>(
+      "/api/ai/generate-workflow",
+      { prompt },
+    );
+
+  return data;
+}
+
+/* ------------------------------------------------------------ integrations */
+
+/**
+ * `GET /api/integrations`.
+ */
+export async function fetchIntegrations(): Promise<IntegrationsResponse> {
+  const { data } =
+    await api.get<IntegrationsResponse>(
+      "/api/integrations",
+    );
+
+  return data;
+}
+
+/** `GET /api/integrations/{id}`. */
+export async function fetchIntegration(
+  id: string,
+): Promise<Integration> {
+  const { data } =
+    await api.get<Integration>(
+      `/api/integrations/${id}`,
+    );
+
+  return data;
+}
+
+/**
+ * `POST /api/integrations`.
+ */
+export async function connectIntegration(
+  body: ConnectIntegrationBody,
+): Promise<Integration> {
+  const { data } =
+    await api.post<Integration>(
+      "/api/integrations",
+      body,
+    );
+
+  return data;
+}
+
+/**
+ * `DELETE /api/integrations/{id}`.
+ */
+export async function disconnectIntegration(
+  id: string,
+): Promise<void> {
+  await api.delete(`/api/integrations/${id}`);
+}
+
+/* --- provider-agnostic integrations -------------------- */
+
+/**
+ * `GET /api/integrations/providers`.
+ */
+export async function fetchProviders(): Promise<ProvidersResponse> {
+  const { data } =
+    await api.get<ProvidersResponse>(
+      "/api/integrations/providers",
+    );
+
+  return data;
+}
+
+/**
+ * `POST /api/integrations` generic provider connection.
+ */
+export async function connectProvider(
+  body: ConnectProviderBody,
+): Promise<Integration> {
+  const { data } =
+    await api.post<Integration>(
+      "/api/integrations/providers",
+      body,
+    );
+
+  return data;
+}
+
+/**
+ * `POST /api/integrations/{id}/test`.
+ */
+export async function testIntegration(
+  id: string,
+): Promise<ConnectionTestResult> {
+  const { data } =
+    await api.post<ConnectionTestResult>(
+      `/api/integrations/${id}/test`,
+    );
+
+  return data;
+}
+
+/**
+ * `POST /api/integrations/{id}/send-test`.
+ */
+export async function sendTestIntegration(
+  id: string,
+): Promise<SendTestResult> {
+  const { data } =
+    await api.post<SendTestResult>(
+      `/api/integrations/${id}/send-test`,
+    );
+
+  return data;
+}
+
+/**
+ * `GET /api/integrations/{id}/workflows`.
+ */
+export async function discoverIntegrationWorkflows(
+  id: string,
+): Promise<MonitoredWorkflowsResponse> {
+  const { data } =
+    await api.get<MonitoredWorkflowsResponse>(
+      `/api/integrations/${id}/workflows`,
+    );
+
+  return data;
+}
+
+/**
+ * `POST /api/integrations/{id}/workflows/{workflowId}/monitor`.
+ */
+export async function monitorProviderWorkflow(
+  id: string,
+  workflowId: string,
+  monitoring: boolean,
+): Promise<MonitorActionResponse> {
+  const { data } =
+    await api.post<MonitorActionResponse>(
+      `/api/integrations/${id}/workflows/${workflowId}/monitor`,
+      { monitoring },
+    );
+
+  return data;
+}
+
+/**
+ * `POST /api/integrations/{id}/sync`.
+ */
+export async function syncIntegration(
+  id: string,
+): Promise<SyncActionResponse> {
+  const { data } =
+    await api.post<SyncActionResponse>(
+      `/api/integrations/${id}/sync`,
+    );
+
+  return data;
+}
+
+/**
+ * `GET /api/integrations/{id}/sync`.
+ */
+export async function fetchSyncStatus(
+  id: string,
+): Promise<SyncStatusResponse> {
+  const { data } =
+    await api.get<SyncStatusResponse>(
+      `/api/integrations/${id}/sync`,
+    );
+
+  return data;
+}
+
+/* --- webhooks ------------------------------------------------------------- */
+
+export async function fetchWorkflowWebhook(
+  workflowId: string,
+): Promise<WebhookResponse> {
+  const { data } =
+    await api.get<WebhookResponse>(
+      `/api/workflows/${workflowId}/webhook`,
+    );
+
+  return data;
+}
+
+export async function generateWorkflowWebhook(
+  workflowId: string,
+): Promise<WebhookSecret> {
+  const { data } =
+    await api.post<WebhookSecret>(
+      `/api/workflows/${workflowId}/webhook`,
+    );
+
+  return data;
+}
+
+export async function setWorkflowWebhookEnabled(
+  workflowId: string,
+  enabled: boolean,
+): Promise<WebhookResponse> {
+  const body: SetWebhookEnabledBody = {
+    enabled,
+  };
+
+  const { data } =
+    await api.patch<WebhookResponse>(
+      `/api/workflows/${workflowId}/webhook`,
+      body,
+    );
+
+  return data;
+}
+
+export async function deleteWorkflowWebhook(
+  workflowId: string,
+): Promise<void> {
+  await api.delete(
+    `/api/workflows/${workflowId}/webhook`,
+  );
+}
+
+/* --- observability -------------------------------------------------------- */
+
+export async function fetchLogs(params?: {
+  workflowId?: string;
+  level?: LogLevel;
+  limit?: number;
+}): Promise<LogsResponse> {
+  const { data } =
+    await api.get<LogsResponse>(
+      "/api/logs",
+      {
+        params: {
+          workflowId: params?.workflowId,
+          level: params?.level,
+          limit: params?.limit,
+        },
+      },
+    );
+
+  return data;
+}
+
+export async function fetchAuditLogs(params?: {
+  action?: AuditAction;
+  limit?: number;
+}): Promise<AuditLogsResponse> {
+  const { data } =
+    await api.get<AuditLogsResponse>(
+      "/api/audit-logs",
+      {
+        params: {
+          action: params?.action,
+          limit: params?.limit,
+        },
+      },
+    );
+
+  return data;
+}
+
+export async function fetchNotifications(params?: {
+  unreadOnly?: boolean;
+  limit?: number;
+}): Promise<NotificationsResponse> {
+  const { data } =
+    await api.get<NotificationsResponse>(
+      "/api/notifications",
+      {
+        params: {
+          unreadOnly: params?.unreadOnly,
+          limit: params?.limit,
+        },
+      },
+    );
+
+  return data;
+}
+
+export async function markNotificationRead(
+  id: string,
+): Promise<NotificationsResponse> {
+  const { data } =
+    await api.post<NotificationsResponse>(
+      `/api/notifications/${id}/read`,
+    );
+
+  return data;
+}
+
+export async function markAllNotificationsRead(): Promise<NotificationsResponse> {
+  const { data } =
+    await api.post<NotificationsResponse>(
+      "/api/notifications/read-all",
+    );
+
+  return data;
+}
+
+/* --- templates ------------------------------------------------------------ */
+
+export async function fetchTemplates(): Promise<TemplatesResponse> {
+  const { data } =
+    await api.get<TemplatesResponse>(
+      "/api/templates",
+    );
+
+  return data;
+}
+
+export async function fetchTemplate(
+  slug: string,
+): Promise<WorkflowTemplateDetail> {
+  const { data } =
+    await api.get<WorkflowTemplateDetail>(
+      `/api/templates/${slug}`,
+    );
+
+  return data;
+}
+
+export async function useTemplate(
+  slug: string,
+  body?: { name?: string },
+): Promise<WorkflowDetail> {
+  const { data } =
+    await api.post<WorkflowDetail>(
+      `/api/templates/${slug}/use`,
+      body ?? {},
+    );
+
+  return data;
+}
+
+/* ------------------------------------------------------------ reliability */
+
+export async function fetchAnomalies(params?: {
+  status?: AnomalyStatus;
+  workflowId?: string;
+}): Promise<AnomaliesResponse> {
+  const { data } =
+    await api.get<AnomaliesResponse>(
+      "/api/reliability/anomalies",
+      {
+        params: {
+          status:
+            params?.status || undefined,
+          workflowId:
+            params?.workflowId || undefined,
+        },
+      },
+    );
+
+  return data;
+}
+
+export async function fetchAnomaly(
+  id: string,
+): Promise<AnomalyDetail> {
+  const { data } =
+    await api.get<AnomalyDetailResponse>(
+      `/api/reliability/anomalies/${id}`,
+    );
+
+  return data.anomaly;
+}
+
+export async function acknowledgeAnomaly(
+  id: string,
+  note?: string,
+): Promise<AcknowledgeResponse> {
+  const { data } =
+    await api.post<AcknowledgeResponse>(
+      `/api/reliability/anomalies/${id}/acknowledge`,
+      note ? { note } : {},
+    );
+
+  return data;
+}
+
+export async function resolveAnomaly(
+  id: string,
+  note?: string,
+): Promise<ResolveResponse> {
+  const { data } =
+    await api.post<ResolveResponse>(
+      `/api/reliability/anomalies/${id}/resolve`,
+      note ? { note } : {},
+    );
+
+  return data;
+}
+
+export async function markAnomalyFalsePositive(
+  id: string,
+  reason: string,
+): Promise<FalsePositiveResponse> {
+  const { data } =
+    await api.post<FalsePositiveResponse>(
+      `/api/reliability/anomalies/${id}/false-positive`,
+      { reason },
+    );
+
+  return data;
+}
+
+export async function fetchWorkflowHealth(
+  workflowId: string,
+): Promise<WorkflowHealthResponse> {
+  const { data } =
+    await api.get<WorkflowHealthResponse>(
+      `/api/reliability/workflows/${workflowId}/health`,
+    );
+
+  return data;
+}
+
+export async function fetchWorkflowMetrics(
+  workflowId: string,
+): Promise<WorkflowMetricsResponse> {
+  const { data } =
+    await api.get<WorkflowMetricsResponse>(
+      `/api/reliability/workflows/${workflowId}/metrics`,
+    );
+
+  return data;
+}
+
+export async function investigateAnomaly(
+  id: string,
+): Promise<InvestigateResponse> {
+  const { data } =
+    await api.post<InvestigateResponse>(
+      `/api/reliability/anomalies/${id}/investigate`,
+      {},
+    );
+
   return data;
 }

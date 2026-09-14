@@ -14,20 +14,37 @@ export type ErrorCode =
   | "VALIDATION_ERROR"
   | "MALFORMED_REQUEST"
   | "UNSUPPORTED_MEDIA_TYPE"
+  | "PAYLOAD_TOO_LARGE"
   | "AUTHENTICATION_REQUIRED"
   | "INVALID_CREDENTIALS"
   | "TOKEN_EXPIRED"
   | "TOKEN_INVALID"
   | "REFRESH_TOKEN_INVALID"
+  | "RESET_TOKEN_INVALID"
   | "FORBIDDEN_ROLE"
   | "NO_ORGANIZATION_CONTEXT"
   | "ORGANIZATION_NOT_FOUND"
+  | "MEMBER_NOT_FOUND"
+  | "CANNOT_MODIFY_SELF"
+  | "LAST_OWNER"
+  | "INVITATION_NOT_FOUND"
+  | "INVITATION_INVALID"
+  | "INVALID_PASSWORD"
   | "WORKFLOW_NOT_FOUND"
   | "WORKFLOW_INVALID"
   | "WORKFLOW_NOT_PUBLISHED"
   | "EXECUTION_NOT_FOUND"
   | "EXECUTION_NOT_RETRYABLE"
   | "APPROVAL_NOT_PENDING"
+  | "AI_AGENT_NOT_FOUND"
+  | "AI_NOT_CONFIGURED"
+  | "AI_SERVICE_ERROR"
+  | "AI_GENERATION_FAILED"
+  | "INTEGRATION_NOT_FOUND"
+  | "INTEGRATION_INVALID"
+  | "NOTIFICATION_NOT_FOUND"
+  | "TEMPLATE_NOT_FOUND"
+  | "ANOMALY_NOT_FOUND"
   | "NOT_FOUND"
   | "METHOD_NOT_ALLOWED"
   | "EMAIL_ALREADY_REGISTERED"
@@ -143,6 +160,67 @@ export interface CreateOrganizationResponse {
 /** `GET /api/organizations/current/members`. Sorted `joinedAt ASC, userId ASC`. */
 export interface OrganizationMembersResponse {
   members: OrganizationMember[];
+}
+
+/* ------------------------------------------------------- team / invitations */
+
+/** Lifecycle of an invitation. */
+export type InvitationStatus = "PENDING" | "ACCEPTED" | "REVOKED";
+
+/**
+ * A tokened invitation to join the current org, as seen on the management surface.
+ * The raw token is NEVER returned here — only its non-secret last-4 `tokenHint`.
+ * The full acceptance token is surfaced exactly once, at create time
+ * (`InvitationSecret`), and can never be recovered afterwards.
+ */
+export interface Invitation {
+  id: string;
+  email: string;
+  role: Role;
+  status: InvitationStatus;
+  tokenHint: string | null;
+  expiresAt: string;
+  createdAt: string;
+}
+
+/** `GET /api/organizations/current/invitations` — always an object. */
+export interface InvitationsResponse {
+  invitations: Invitation[];
+}
+
+/**
+ * `POST /api/organizations/current/invitations` — the ONE-TIME response carrying
+ * the raw acceptance `token`. The frontend composes the shareable link from its
+ * own origin; the token is shown only here and must be copied immediately.
+ */
+export interface InvitationSecret {
+  token: string;
+  email: string;
+  role: Role;
+  tokenHint: string;
+  expiresAt: string;
+}
+
+/** `POST /api/organizations/current/invitations`. Role may not be OWNER. */
+export interface InviteMemberBody {
+  email: string;
+  role: Role;
+}
+
+/** `PATCH /api/organizations/current/members/{userId}`. */
+export interface ChangeMemberRoleBody {
+  role: Role;
+}
+
+/** `POST /api/invitations/accept` — redeem a token for the authenticated caller. */
+export interface AcceptInvitationBody {
+  token: string;
+}
+
+/** `POST /api/auth/change-password` — re-verifies the current password server-side. */
+export interface ChangePasswordBody {
+  currentPassword: string;
+  newPassword: string;
 }
 
 /* --------------------------------------------------------------- workflows */
@@ -385,6 +463,53 @@ export interface ExecutionsResponse {
   executions: ExecutionSummary[];
 }
 
+/* ----------------------------------------------------- external executions */
+
+/**
+ * Lifecycle status reported by an external workflow provider such as n8n.
+ */
+export type ExternalExecutionStatus =
+  | "RUNNING"
+  | "WAITING"
+  | "SUCCEEDED"
+  | "FAILED"
+  | "CANCELED"
+  | "SKIPPED";
+
+/**
+ * One externally monitored execution event.
+ *
+ * FlowOps stores provider execution telemetry at the step/node level.
+ * Therefore one external execution can contain multiple events with the same
+ * `executionExternalId`.
+ */
+export interface ExecutionEvent {
+  id: string;
+  organizationId: string;
+  workflowId: string;
+  source: string;
+  workflowExternalId: string;
+  executionExternalId: string;
+  stepExternalId: string;
+  stepName: string | null;
+  status: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  durationMs: number | null;
+  retryCount: number | null;
+  inputSize: number | null;
+  outputSize: number | null;
+  errorType: string | null;
+  errorMessage: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+/** `GET /api/v1/execution-events` response. */
+export interface ExecutionEventsResponse {
+  events: ExecutionEvent[];
+}
+
 /** The four dashboard windows. `24h` buckets hourly; the rest bucket daily. */
 export type StatsRange = "24h" | "7d" | "30d" | "90d";
 
@@ -415,4 +540,615 @@ export interface ExecutionStats {
   since: string;
   totals: ExecutionStatsTotals;
   series: ExecutionStatsPoint[];
+}
+
+/* --------------------------------------------------------------- ai agents */
+
+/**
+ * The tools an AI agent may enable, mirrored from the AI service's allowlisted
+ * registry (`ai-service/app/tools.py`). Only these names are ever accepted; the
+ * backend and AI service both re-check, so an unknown name is silently ignored.
+ */
+export const AI_AGENT_TOOLS: {
+  name: string;
+  label: string;
+  help: string;
+}[] = [
+  {
+    name: "get_current_time",
+    label: "Current time",
+    help: "Return the current date and time (UTC, or a given IANA timezone).",
+  },
+  {
+    name: "calculate",
+    label: "Calculator",
+    help: "Evaluate a basic arithmetic expression (+, −, ×, ÷, %, ^).",
+  },
+];
+
+/** Row in the AI agents list. `GET /api/ai/agents`. */
+export interface AiAgentSummary {
+  id: string;
+  name: string;
+  description: string | null;
+  model: string | null;
+  tools: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Full agent including its instructions. `GET /api/ai/agents/{id}`. */
+export interface AiAgentDetail {
+  id: string;
+  name: string;
+  description: string | null;
+  instructions: string;
+  model: string | null;
+  tools: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** `GET /api/ai/agents` — always an object, never a bare array. */
+export interface AiAgentsResponse {
+  agents: AiAgentSummary[];
+}
+
+/**
+ * Create / update payload. Update is a full replace (PATCH semantics on the
+ * backend record), so always send every field the form owns. `name` and
+ * `instructions` are required; blanks in the optional fields are dropped server
+ * side.
+ */
+export interface AiAgentBody {
+  name: string;
+  description?: string;
+  instructions: string;
+  model?: string;
+  tools?: string[];
+}
+
+/** One allowlisted tool the model invoked during a run, for transparency. */
+export interface AgentToolCall {
+  name: string;
+  arguments: unknown;
+  result: string;
+}
+
+/**
+ * Result of running an agent (test console, mirrored by the `ai_agent` node).
+ * `configured` is false when the AI service has no provider key: `output` is
+ * then null and nothing is fabricated — an honest "not configured".
+ */
+export interface AgentRunResult {
+  configured: boolean;
+  output: string | null;
+  toolCalls: AgentToolCall[];
+  model: string | null;
+}
+
+/**
+ * Result of "Create with AI". `graph` is a builder-ready workflow graph already
+ * sanitized against the node registry; the canvas drops it in directly. It is
+ * never run automatically. `notes` is optional model commentary.
+ */
+export interface GenerateWorkflowResult {
+  graph: WorkflowGraph;
+  notes: string | null;
+}
+
+/* ------------------------------------------------------------ integrations */
+
+/** Connection state of an integration. */
+export type IntegrationStatus = "connected" | "disconnected";
+
+/**
+ * A provider connection owned by the current org. There is exactly one row per
+ * `(org, type)` — connecting again re-connects the same slot.
+ *
+ * The stored credential (e.g. the Slack incoming-webhook URL) is a secret and is
+ * NEVER sent to the client: the API returns only a masked `hint` (the secret's
+ * last few characters), which is `null` once disconnected. `type` is a bare
+ * string — only `"slack"` is wired end-to-end in M5, but the backend owns the set.
+ */
+export interface Integration {
+  id: string;
+  type: string;
+  name: string;
+  status: IntegrationStatus;
+  hint: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** `GET /api/integrations` — always an object, never a bare array. */
+export interface IntegrationsResponse {
+  integrations: Integration[];
+}
+
+/**
+ * `POST /api/integrations` — connect (or re-connect) a provider by pasting its
+ * secret. The plaintext is encrypted server-side and never returned.
+ */
+export interface ConnectIntegrationBody {
+  type: string;
+  webhookUrl: string;
+}
+
+/* --- provider-agnostic integration (M5+ workflow providers) ------------------ */
+
+export type ProviderType =
+  // Workflow automation providers
+  | "n8n"
+  | "make"
+  | "zapier"
+  | "temporal"
+  | "github"
+  | "custom"
+  // Delivery/notification channel providers
+  | "slack"
+  | "email"
+  | "discord"
+  | "teams"
+  | "webhook";
+
+/** Credential field definition returned by the provider catalog. */
+export interface CredentialField {
+  key: string;
+  label: string;
+  secret: boolean;
+  placeholder: string;
+  example: string;
+  help: string;
+}
+
+/** Provider capability flags. */
+export interface ProviderCapabilities {
+  workflowDiscovery: boolean;
+  executionHistory: boolean;
+  nodeExecutionData: boolean;
+  incrementalSync: boolean;
+  webhooks: boolean;
+  tracing: boolean;
+}
+
+/** A workflow provider in the catalog. */
+export interface ProviderInfo {
+  type: ProviderType;
+  name: string;
+  description: string;
+  available: boolean;
+  capabilities: ProviderCapabilities;
+  credentialFields: CredentialField[];
+}
+
+/** `GET /api/integrations/providers` — catalog of available workflow providers. */
+export interface ProvidersResponse {
+  providers: ProviderInfo[];
+}
+
+/** `POST /api/integrations` (generic) — connect a workflow provider. */
+export interface ConnectProviderBody {
+  type: ProviderType;
+  name: string;
+  config: Record<string, string>;
+}
+
+/** `POST /api/integrations/{id}/test` — test stored credentials. */
+export interface ConnectionTestResult {
+  success: boolean;
+  message: string;
+}
+
+/** `POST /api/integrations/{id}/send-test` — send a self-addressed test message. */
+export interface SendTestResult {
+  success: boolean;
+  code: string | null;
+  message: string | null;
+  retryable: boolean;
+  durationMs: number;
+  httpStatus: number | null;
+}
+
+/** A remote workflow from a provider (discovered or monitored). */
+export interface ExternalWorkflow {
+  id: string;
+  name: string;
+  status: string;
+  monitoring: boolean;
+  lastSyncedAt: string | null;
+}
+
+/** `GET /api/integrations/{id}/workflows` — discovered + monitored workflows. */
+export interface MonitoredWorkflowsResponse {
+  workflows: ExternalWorkflow[];
+}
+
+/** `POST /api/integrations/{id}/workflows/{workflowId}/monitor` — start/stop monitoring. */
+export interface MonitorActionRequest {
+  monitoring: boolean;
+}
+
+export interface MonitorActionResponse {
+  success: boolean;
+  status: "MONITORING_STARTED" | "MONITORING_STOPPED";
+}
+
+/** `POST /api/integrations/{id}/sync` — manual sync trigger. */
+export interface SyncActionResponse {
+  workflows: number;
+  executions: number;
+  events: number;
+  duplicates: number;
+  status: string;
+}
+
+/** `GET /api/integrations/{id}/sync` — sync status. */
+export interface SyncStatusResponse {
+  status: "NEW" | "HEALTHY" | "FAILED";
+  lastSyncAt: string | null;
+  lastSuccessfulSyncAt: string | null;
+  error: string | null;
+}
+
+// --- webhooks (M5 slice 2) ---------------------------------------------------
+//
+// A workflow's public inbound webhook: `POST /api/webhooks/{workflowId}/{token}`
+// lets an external system start a run. The token IS the authentication; only its
+// hash is stored server-side. A management read returns MASKED state only — never
+// the token. The full working URL is returned exactly once, at generate time
+// (`WebhookSecret`), and can never be recovered afterwards.
+
+/** Masked webhook state shown on the management surface. */
+export interface WebhookConfig {
+  enabled: boolean;
+  /** Non-secret last-4 of the token, safe to display. */
+  tokenHint: string | null;
+  /** Display-only URL with the token masked (`…/webhooks/{id}/••••{hint}`). */
+  urlMasked: string;
+  createdAt: string;
+}
+
+/** `GET /api/workflows/{id}/webhook` — `webhook` is null when none is configured. */
+export interface WebhookResponse {
+  webhook: WebhookConfig | null;
+}
+
+/**
+ * `POST /api/workflows/{id}/webhook` — the ONE-TIME response to generating or
+ * rotating the token. `url` embeds the secret and is shown only here; the client
+ * must warn the user to copy it now.
+ */
+export interface WebhookSecret {
+  url: string;
+  tokenHint: string;
+  enabled: boolean;
+}
+
+/** `PATCH /api/workflows/{id}/webhook` — enable or disable the inbound webhook. */
+export interface SetWebhookEnabledBody {
+  enabled: boolean;
+}
+
+// --- observability (M5 slice 4) ----------------------------------------------
+//
+// Three read surfaces over data the server already owns: the org-wide log viewer
+// (the SAME `execution_logs` the engine writes — not a second logging system),
+// the append-only audit trail, and the caller's own notification inbox. None of
+// them can carry a secret: log lines come from executor outcomes, audit summaries
+// are composed from role names / provider types / masked hints, and notifications
+// from run state.
+
+/**
+ * One line in the org-wide log viewer. Unlike {@link ExecutionLogEntry} (nested in
+ * a single run) each row names its own run and workflow, because the viewer
+ * interleaves lines from many runs.
+ */
+export interface LogEntry {
+  id: string;
+  executionId: string;
+  workflowId: string;
+  workflowName: string;
+  nodeId: string | null;
+  level: LogLevel;
+  message: string;
+  seq: number;
+  createdAt: string;
+}
+
+/** `GET /api/logs` — always an object, never a bare array. */
+export interface LogsResponse {
+  logs: LogEntry[];
+}
+
+/**
+ * The security-relevant actions the trail records. Mirrors the backend
+ * `AuditAction` enum: the names are part of the persisted contract, so this union
+ * must stay in step with it.
+ */
+export type AuditAction =
+  | "MEMBER_INVITED"
+  | "INVITATION_REVOKED"
+  | "INVITATION_ACCEPTED"
+  | "MEMBER_ROLE_CHANGED"
+  | "MEMBER_REMOVED"
+  | "ORGANIZATION_RENAMED"
+  | "PASSWORD_CHANGED"
+  | "INTEGRATION_CONNECTED"
+  | "INTEGRATION_DISCONNECTED"
+  | "WEBHOOK_GENERATED"
+  | "WEBHOOK_ENABLED"
+  | "WEBHOOK_DISABLED"
+  | "WEBHOOK_DELETED"
+  | "WEBHOOK_AUTH_FAILED";
+
+/**
+ * One audit entry, readable by admins only. `actorUserId`/`actorEmail` are null
+ * for anonymous events — a failed inbound-webhook authentication has no actor by
+ * definition. `actorEmail` is a snapshot taken at write time, so the trail stays
+ * readable after a rename or a removal.
+ */
+export interface AuditLogEntry {
+  id: string;
+  actorUserId: string | null;
+  actorEmail: string | null;
+  action: AuditAction;
+  targetType: string | null;
+  targetId: string | null;
+  summary: string | null;
+  ip: string | null;
+  createdAt: string;
+}
+
+/** `GET /api/audit-logs` — admin-gated server-side; `hasRole` here is UX only. */
+export interface AuditLogsResponse {
+  auditLogs: AuditLogEntry[];
+}
+
+/** Severity of an in-app notification. */
+export type NotificationLevel = "INFO" | "WARN" | "ERROR";
+
+/**
+ * One notification addressed to the signed-in user in their current org. `link` is
+ * always a relative in-app path, so rendering it as an anchor can never navigate
+ * off-origin. `readAt` is null until it is read.
+ */
+export interface AppNotification {
+  id: string;
+  level: NotificationLevel;
+  title: string;
+  body: string | null;
+  link: string | null;
+  readAt: string | null;
+  createdAt: string;
+}
+
+/**
+ * `GET /api/notifications` and both mark-read routes return the refreshed inbox,
+ * `unreadCount` included, so the badge never needs a second request.
+ */
+export interface NotificationsResponse {
+  notifications: AppNotification[];
+  unreadCount: number;
+}
+
+// --- templates (M5 slice 5) -------------------------------------------------
+
+/**
+ * A built-in template. Product content served from the backend catalogue, not
+ * tenant data — `GET /api/templates` returns the same list for every org.
+ * `icon` is a PascalCase lucide name resolved by `resolveIcon`.
+ */
+export interface WorkflowTemplateSummary {
+  slug: string;
+  name: string;
+  description: string;
+  category: string;
+  icon: string;
+  tags: string[];
+  nodeCount: number;
+}
+
+/** `GET /api/templates/{slug}` — the summary plus the graph, for a preview. */
+export interface WorkflowTemplateDetail
+  extends WorkflowTemplateSummary {
+  graph: WorkflowGraph;
+}
+
+export interface TemplatesResponse {
+  templates: WorkflowTemplateSummary[];
+}
+
+/* ------------------------------------------------------------ reliability */
+
+/** Anomaly type (mirrors backend AnomalyType). */
+export type AnomalyType =
+  | "VOLUME"
+  | "LATENCY"
+  | "OUTPUT"
+  | "BEHAVIORAL";
+
+/** Anomaly severity (mirrors backend AnomalySeverity). */
+export type AnomalySeverity =
+  | "LOW"
+  | "MEDIUM"
+  | "HIGH"
+  | "CRITICAL";
+
+/** Anomaly lifecycle status (mirrors backend AnomalyStatus). */
+export type AnomalyStatus =
+  | "OPEN"
+  | "ACKNOWLEDGED"
+  | "RESOLVED"
+  | "FALSE_POSITIVE";
+
+/** Row in the anomalies list. */
+export interface AnomalySummary {
+  id: string;
+  workflowId: string;
+  workflowName: string;
+  nodeId: string | null;
+  nodeType: string | null;
+  type: AnomalyType;
+  severity: AnomalySeverity;
+  status: AnomalyStatus;
+  metric: string | null;
+  expectedValue: string;
+  actualValue: string;
+  deviation: number;
+  confidence: number;
+  affectedExecutions: number;
+  detectedAt: string;
+  updatedAt: string;
+}
+
+/** Full anomaly detail. */
+export interface AnomalyDetail {
+  id: string;
+  organizationId: string;
+  workflowId: string;
+  workflowName: string;
+  nodeId: string | null;
+  nodeType: string | null;
+  executionId: string | null;
+  type: AnomalyType;
+  severity: AnomalySeverity;
+  status: AnomalyStatus;
+  metric: string | null;
+  expectedValue: string;
+  actualValue: string;
+  deviation: number;
+  confidence: number;
+  affectedExecutions: number;
+  evidence: Record<string, unknown> | null;
+  dedupKey: string;
+  detectedAt: string;
+  updatedAt: string;
+  createdAt: string;
+}
+
+export interface AnomaliesResponse {
+  anomalies: AnomalySummary[];
+}
+
+/** Single anomaly detail response (wrapped in anomaly property). */
+export interface AnomalyDetailResponse {
+  anomaly: AnomalyDetail;
+}
+
+/** Anomaly acknowledgment. */
+export interface AcknowledgeRequest {
+  note?: string;
+}
+
+export interface AcknowledgeResponse {
+  anomaly: AnomalyDetail;
+}
+
+/** Anomaly resolution. */
+export interface ResolveRequest {
+  note?: string;
+}
+
+export interface ResolveResponse {
+  anomaly: AnomalyDetail;
+}
+
+/** False positive. */
+export interface FalsePositiveRequest {
+  reason: string;
+}
+
+export interface FalsePositiveResponse {
+  anomaly: AnomalyDetail;
+}
+
+/** Workflow health / reliability score. */
+export interface WorkflowHealth {
+  workflowId: string;
+  workflowName: string;
+  reliabilityScore: number;
+  totalExecutions: number;
+  succeededExecutions: number;
+  failedExecutions: number;
+  successRate: number;
+  openAnomalies: number;
+  criticalAnomalies: number;
+  highAnomalies: number;
+  mediumAnomalies: number;
+  lowAnomalies: number;
+  lastExecutionAt: string | null;
+  scoreComputedAt: string;
+}
+
+export interface WorkflowHealthResponse {
+  health: WorkflowHealth;
+}
+
+/** Time-series metrics for charts. */
+export interface MetricSeries {
+  metric: string;
+  nodeId: string | null;
+  points: MetricPoint[];
+}
+
+export interface MetricPoint {
+  at: string;
+  value: number;
+  label: string | null;
+}
+
+export interface WorkflowMetrics {
+  workflowId: string;
+  latency: MetricSeries[];
+  volume: MetricSeries[];
+  successRate: MetricSeries[];
+  anomalyFrequency: MetricSeries[];
+  reliabilityScoreHistory: MetricSeries[];
+}
+
+export interface WorkflowMetricsResponse {
+  metrics: WorkflowMetrics;
+}
+
+/** AI investigation types. */
+export interface LikelyCause {
+  cause: string;
+  category: string;
+  confidence: number;
+  uncertainty: string;
+}
+
+export interface EvidenceItem {
+  type: string;
+  description: string;
+  source: string;
+  inference: string;
+}
+
+export interface RecommendedAction {
+  action: string;
+  rationale: string;
+  risk: string;
+  effort: string;
+}
+
+export interface AIInvestigationResult {
+  summary: string | null;
+  likelyCauses: LikelyCause[];
+  evidence: EvidenceItem[];
+  impact: string | null;
+  recommendedActions: RecommendedAction[];
+  confidence: number;
+  configured: boolean;
+  model: string | null;
+  generatedAt: string;
+}
+
+export interface InvestigateRequest {
+  context?: Record<string, unknown>;
+}
+
+export interface InvestigateResponse {
+  result: AIInvestigationResult;
 }
