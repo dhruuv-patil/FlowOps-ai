@@ -54,3 +54,13 @@ postgres_data/
 
 # Uploads (future RAG)
 uploads/
+
+# ── Local-only / secrets / stray files ────────────────────────
+frontend/components/brand/credentials.json
+frontend/components/brand/*.dmg
+frontend/components/brand/logo-mark.png
+frontend/components/brand/Executive Summary.pdf
+# SMTP TLS debugging scratch (keystores/certs/binaries — not project code)
+smtp-tls-test/
+# Machine-specific Claude Code tooling config
+.claude/

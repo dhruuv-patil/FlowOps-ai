@@ -20,8 +20,7 @@ import org.junit.jupiter.api.Test;
 class CredentialCipherTest {
 
     private static final String WEBHOOK_URL =
-            "https://example.com/test-webhook";
-
+        "https://example.com/test-webhook";
     private static CredentialCipher cipher() {
         byte[] raw = new byte[CryptoProperties.KEY_BYTES];
         for (int i = 0; i < raw.length; i++) {

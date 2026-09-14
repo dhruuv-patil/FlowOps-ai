@@ -1,0 +1,60 @@
+# Production profile. Activated by setting SPRING_PROFILES_ACTIVE=prod.
+# What this profile does:
+#   - Quiet INFO logging from our code (DEBUG is opt-in for narrow packages).
+#   - Quiet Hibernate SQL (off by default in prod; the SQL is not useful to operators).
+#   - Keep the management endpoints narrow: only health/info, never shutdown or
+#     anything else over the public network.
+#   - Tighten cookie defaults: REFRESH_COOKIE_SECURE and SameSite=None.
+#
+# Secrets (JWT_SECRET, ENCRYPTION_KEY) are NOT defaulted here. They are read from
+# the environment, and AuthPropertiesValidator + CryptoProperties fail fast on
+# startup if either is missing or weak. A successful boot in this profile is
+# proof the deployment is correctly configured.
+
+server:
+  # No error whitelabel; the GlobalExceptionHandler is the only error surface.
+  error:
+    whitelabel:
+      enabled: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # Only the health endpoints. No `env`, no `configprops`, no `mappings`
+        # over the public network — those would leak secret paths and schema
+        # details to anyone who finds the actuator port.
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  info:
+    env:
+      enabled: false
+
+flowops:
+  auth:
+    refresh-cookie:
+      # The cookie is only ever set over HTTPS in prod. A HTTP request cannot
+      # set a Secure cookie, which forces refresh to fail loudly in the event
+      # of a deployment misconfiguration.
+      secure: ${REFRESH_COOKIE_SECURE:true}
+      same-site: ${REFRESH_COOKIE_SAME_SITE:None}
+
+logging:
+  level:
+    root: INFO
+    com.flowops: INFO
+    # Narrow DEBUG only for the packages where it's actually useful in
+    # incident response. Everything else stays at INFO so a runaway log
+    # never ends up in a customer's aggregator.
+    com.flowops.security: INFO
+    com.flowops.audit: INFO
+    com.flowops.workflow.validation: INFO
+    com.flowops.common.ratelimit: INFO
+    # Hibernate's SQL is rarely useful in prod and is loud under load.
+    org.hibernate.SQL: WARN
+    org.hibernate.orm.jdbc.bind: WARN
+    # The Tomcat access log is configured separately by the container.
+    org.springframework.web: INFO

@@ -10,7 +10,13 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.web.servlet.MockMvc;
 
-@SpringBootTest
+// The context needs a >= 256-bit HS256 secret (JwtService fails fast on a weak
+// key). Production supplies it via ${JWT_SECRET}; tests inject a dedicated,
+// non-production 32+ byte secret here so the property mechanism — and the
+// key-length validation — stay exactly as they are in production.
+@SpringBootTest(
+        properties =
+                "flowops.auth.jwt-secret=flowops-test-only-jwt-secret-not-for-production-0123456789")
 @AutoConfigureMockMvc
 class HealthControllerTest {
 

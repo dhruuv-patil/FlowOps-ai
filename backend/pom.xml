@@ -21,6 +21,13 @@
         <java.version>21</java.version>
         <springdoc.version>2.7.0</springdoc.version>
         <jjwt.version>0.12.6</jjwt.version>
+        <!-- Spring Boot 3.4.1 manages Mockito 5.14 / Byte Buddy 1.15, which predate and
+             reject newer JVM class-file versions (e.g. Java 26). Override to versions that
+             know about current JVMs; the surefire argLine below also sets
+             net.bytebuddy.experimental=true so Byte Buddy tolerates a JVM newer than it was
+             built against instead of failing MockMaker init. Test-only — no main behavior. -->
+        <mockito.version>5.23.0</mockito.version>
+        <byte-buddy.version>1.18.10</byte-buddy.version>
     </properties>
 
     <dependencies>
@@ -124,6 +131,35 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+
+            <!-- Expose resolved artifact paths as properties (e.g.
+                 ${org.mockito:mockito-core:jar}) so surefire can load Mockito as a
+                 -javaagent below without hardcoding a repository path or version. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>get-test-classpath-properties</id>
+                        <goals>
+                            <goal>properties</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Load Mockito as an instrumentation agent rather than relying on runtime
+                 self-attachment, which is disabled by default on recent JDKs (Java 21+),
+                 and let Byte Buddy run on a JVM newer than it officially supports. This is
+                 the fix for MockMaker failing to initialize under Java 26; it changes only
+                 how tests are launched, never any webhook or production behavior. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>-javaagent:${org.mockito:mockito-core:jar} -Dnet.bytebuddy.experimental=true</argLine>
+                </configuration>
             </plugin>
         </plugins>
     </build>
