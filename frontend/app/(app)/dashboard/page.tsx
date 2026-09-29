@@ -1,892 +1,1703 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import {
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
-  AlertCircle,
   ArrowRight,
-  CheckCircle2,
-  Clock,
-  ExternalLink,
-  Gauge,
-  Radio,
-  Search,
-  TrendingUp,
-  X,
-  Zap,
+  Clock3,
+  Plus,
+  Play,
 } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
 
-import { cn } from "@/lib/utils";
 import {
+  fetchAnomalies,
   fetchCurrentOrganization,
   fetchExecutionStats,
   fetchExecutions,
 } from "@/lib/api";
-import { formatDuration, formatRelativeTime } from "@/lib/format";
-import type { ExecutionStatus, StatsRange } from "@/types";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  formatDuration,
+  formatRelativeTime,
+  isLiveStatus,
+} from "@/lib/format";
+
+import type {
+  ExecutionStatus,
+  ExecutionSummary,
+  StatsRange,
+} from "@/types";
+
+import { cn } from "@/lib/utils";
+
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardContent,
+} from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Reveal, HoverLift } from "@/components/motion/motion-primitives";
 
-const RANGE_OPTIONS: StatsRange[] = ["24h", "7d", "30d", "90d"];
+import {
+  Reveal,
+  StaggerGroup,
+  StaggerItem,
+  HoverLift,
+} from "@/components/motion/motion-primitives";
 
-type ExecutionItem = {
-  id: string;
-  workflowName: string | null;
-  workflowId: string;
-  status: ExecutionStatus;
-  createdAt: string;
-  durationMs: number | null;
-  triggerType: string;
-  versionNumber: number;
-};
+
+/* ==========================================================================
+   CONSTANTS
+============================================================================ */
+
+const RANGE_OPTIONS: StatsRange[] = [
+  "24h",
+  "7d",
+  "30d",
+  "90d",
+];
+
+/* ==========================================================================
+   PAGE
+============================================================================ */
 
 export default function DashboardPage() {
-  const [range, setRange] = useState<StatsRange>("7d");
+  const [range, setRange] =
+    useState<StatsRange>("7d");
 
-  const executions = useQuery({
-    queryKey: ["executions", "dashboard"],
-    queryFn: () => fetchExecutions({ limit: 12 }),
-    refetchInterval: (query) =>
-      (query.state.data?.executions ?? []).some((execution) =>
-        isLiveStatus(execution.status),
-      )
-        ? 5000
-        : false,
+  /* ------------------------------------------------------------------------
+     EXECUTIONS
+  ------------------------------------------------------------------------ */
+
+  const executionsQuery = useQuery({
+    queryKey: [
+      "executions",
+      "dashboard",
+    ],
+
+    queryFn: () =>
+      fetchExecutions({
+        limit: 12,
+      }),
+
+    staleTime: 10_000,
+
+    refetchInterval: query => {
+      const executions =
+        query.state.data
+          ?.executions ?? [];
+
+      const hasLiveExecution =
+        executions.some(execution =>
+          isLiveStatus(
+            execution.status,
+          ),
+        );
+
+      return hasLiveExecution
+        ? 5_000
+        : false;
+    },
   });
 
-  const stats = useQuery({
-    queryKey: ["executions", "stats", range],
-    queryFn: () => fetchExecutionStats(range),
+  /* ------------------------------------------------------------------------
+     STATS
+  ------------------------------------------------------------------------ */
+
+  const statsQuery = useQuery({
+    queryKey: [
+      "executions",
+      "stats",
+      range,
+    ],
+
+    queryFn: () =>
+      fetchExecutionStats(range),
+
+    staleTime: 15_000,
+
+    refetchInterval: 15_000,
   });
 
-  const org = useQuery({
-    queryKey: ["org", "current"],
-    queryFn: () => fetchCurrentOrganization(),
-  });
+  /* ------------------------------------------------------------------------
+     ORGANIZATION
+  ------------------------------------------------------------------------ */
 
-  const loading = executions.isPending || stats.isPending;
+  const organizationQuery =
+    useQuery({
+      queryKey: [
+        "org",
+        "current",
+      ],
 
-  const recentExecutions = useMemo<ExecutionItem[]>(
-    () => executions.data?.executions ?? [],
-    [executions.data?.executions],
-  );
+      queryFn:
+        fetchCurrentOrganization,
 
-  const totals = stats.data?.totals;
+      staleTime:
+        5 * 60 * 1000,
+    });
+
+  /* ------------------------------------------------------------------------
+     OPEN ANOMALIES
+     ------------------------------------------------------------------------
+
+     ExecutionStats intentionally does not contain anomaly counts.
+     Anomalies are their own reliability resource.
+  ------------------------------------------------------------------------ */
+
+  const anomaliesQuery =
+    useQuery({
+      queryKey: [
+        "reliability",
+        "anomalies",
+        "open",
+      ],
+
+      queryFn: () =>
+        fetchAnomalies({
+          status: "OPEN",
+        }),
+
+      staleTime: 15_000,
+
+      refetchInterval: 15_000,
+    });
+
+  /* ------------------------------------------------------------------------
+     DATA
+  ------------------------------------------------------------------------ */
+
+  const executions =
+    executionsQuery.data
+      ?.executions ?? [];
+
+  const stats =
+    statsQuery.data;
+
+  const totals =
+    stats?.totals;
+
+  const series =
+    stats?.series ?? [];
+
+  const openAnomalies =
+    anomaliesQuery.data
+      ?.anomalies ?? [];
+
+  /* ------------------------------------------------------------------------
+     KPI VALUES
+  ------------------------------------------------------------------------ */
+
+  const totalRuns =
+    totals?.total ?? 0;
 
   /*
-   * Keep the dashboard resilient if the stats contract is extended later.
-   * failed/running/queued are optional and fall back to the executions
-   * currently returned for the dashboard.
+   * Backend returns successRate as a 0–1 fraction.
+   *
+   * Example:
+   * 0.9872 -> 98.72%
    */
-  const dashboardTotals = useMemo(() => {
-    const typedTotals = totals as
-      | (typeof totals & {
-          failed?: number;
-          running?: number;
-          queued?: number;
-        })
-      | undefined;
+  const successRate =
+    (totals?.successRate ?? 0) *
+    100;
 
-    const recentFailed = recentExecutions.filter(
-      (execution) => execution.status === "FAILED",
+  const failedRuns =
+    totals?.failed ?? 0;
+
+  /*
+   * Active means all non-terminal execution
+   * states represented by the stats contract.
+   */
+  const activeRuns =
+    (totals?.running ?? 0) +
+    (totals?.waiting ?? 0) +
+    (totals?.queued ?? 0);
+
+  const avgDurationMs =
+    totals?.avgDurationMs ??
+    null;
+
+  const activeAnomalies =
+    openAnomalies.length;
+
+  const highPriorityAnomalies =
+    openAnomalies.filter(
+      anomaly =>
+        anomaly.severity ===
+          "HIGH" ||
+        anomaly.severity ===
+          "CRITICAL",
     ).length;
 
-    const recentActive = recentExecutions.filter((execution) =>
-      isLiveStatus(execution.status),
-    ).length;
+  /* ------------------------------------------------------------------------
+     RECENT EXECUTIONS
+  ------------------------------------------------------------------------ */
 
-    return {
-      total: totals?.total ?? 0,
-      successRate: totals?.successRate ?? 0,
-      avgDurationMs: totals?.avgDurationMs ?? null,
-      failed:
-        typeof typedTotals?.failed === "number"
-          ? typedTotals.failed
-          : recentFailed,
-      active:
-        typeof typedTotals?.running === "number"
-          ? typedTotals.running
-          : recentActive,
-    };
-  }, [recentExecutions, totals]);
+  const recentExecutions =
+    useMemo<ExecutionSummary[]>(
+      () => executions,
+      [executions],
+    );
 
-  const failedExecutions = recentExecutions.filter(
-    (execution) => execution.status === "FAILED",
-  );
+  /* ------------------------------------------------------------------------
+     RANGE LABEL
+  ------------------------------------------------------------------------ */
 
-  const activeExecutions = recentExecutions.filter((execution) =>
-    isLiveStatus(execution.status),
-  );
+  const rangeLabel =
+    getRangeLabel(range);
 
-  const healthLabel = getHealthLabel(
-    dashboardTotals.successRate,
-    dashboardTotals.failed,
-  );
+  /* ------------------------------------------------------------------------
+     ORGANIZATION NAME
+  ------------------------------------------------------------------------ */
+
+  const organizationName =
+    organizationQuery.data
+      ?.organization.name ??
+    "Your organization";
+
+  /* ------------------------------------------------------------------------
+     CHART
+  ------------------------------------------------------------------------ */
+
+  const chart =
+    useMemo(
+      () =>
+        buildChart(
+          series,
+        ),
+      [series],
+    );
+
+  /* ------------------------------------------------------------------------
+     LOADING
+  ------------------------------------------------------------------------ */
+
+  const initialLoading =
+    executionsQuery.isPending ||
+    statsQuery.isPending;
+
+  /* ------------------------------------------------------------------------
+     RENDER
+  ------------------------------------------------------------------------ */
 
   return (
-    <div className="space-y-7 pb-10">
-      {/* ------------------------------------------------------------------ */}
-      {/* Header                                                              */}
-      {/* ------------------------------------------------------------------ */}
-      <Reveal>
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p className="mono-eyebrow">Workspace</p>
+    <main className="min-h-full bg-black text-white">
+      <div className="mx-auto max-w-7xl px-4 pb-10 pt-5 sm:px-6 lg:px-8">
 
-            <h1 className="mt-1 text-xl font-semibold tracking-tight text-white/90">
-              Dashboard
-            </h1>
+        {/* ================================================================
+            HEADER
+        ================================================================ */}
 
-            <p className="mt-1 text-sm text-white/44">
-              {org.data?.organization.name ?? "Your workspace"} — activity
-              overview
-            </p>
+        <Reveal>
+          <div className="flex flex-col gap-4 border-b border-white/[0.055] pb-5 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <div className="flex size-7 items-center justify-center rounded-lg border border-white/[0.07] bg-[#111114]">
+                  <Activity className="size-3.5 text-white/50" />
+                </div>
+                <span className="mono-eyebrow">Execution Control Plane</span>
+              </div>
+
+              <h1 className="mt-3 text-[24px] font-semibold tracking-[-0.04em] text-white">
+                Overview
+              </h1>
+
+              <p className="mt-1 text-xs text-white/35">
+                Monitor workflow health and reliability across {organizationName}.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+                <div className="flex h-10 items-center gap-1 rounded-lg border border-white/[0.075] bg-[#0A0A0C] p-1">
+                  {RANGE_OPTIONS.map(
+                    value => {
+                      const active =
+                        range ===
+                        value;
+
+                      return (
+                        <button
+                          key={
+                            value
+                          }
+                          type="button"
+                          onClick={() =>
+                            setRange(
+                              value,
+                            )
+                          }
+                          className={cn(
+                            "h-8 rounded-md px-3 text-[11px] font-medium transition-colors",
+                            active
+                              ? "bg-white/[0.09] text-white"
+                              : "text-white/30 hover:bg-white/[0.035] hover:text-white/65",
+                          )}
+                        >
+                          {getRangeLabel(
+                            value,
+                          )}
+                        </button>
+                      );
+                    },
+                  )}
+                </div>
+
+                <Link href="/workflows">
+                  <Button className="h-10 gap-2 rounded-lg bg-white px-4 text-sm font-medium text-black shadow-none hover:bg-white/90">
+                    <Plus className="size-4" />
+                    New workflow
+                  </Button>
+                </Link>
+            </div>
           </div>
+        </Reveal>
 
-          <div className="flex w-fit rounded-full border border-white/[0.08] bg-white/[0.03] p-0.5">
-            {RANGE_OPTIONS.map((r) => (
-              <button
-                key={r}
-                type="button"
-                onClick={() => setRange(r)}
-                className={cn(
-                  "rounded-full px-3 py-1.5 text-xs font-medium transition-all",
-                  range === r
-                    ? "bg-white text-[#050505]"
-                    : "text-white/45 hover:text-white/80",
-                )}
+        {/* ================================================================
+            KPI STRIP
+        ================================================================ */}
+
+        <Reveal
+          delay={0.04}
+          distance={8}
+        >
+          <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-white/[0.065] bg-[#0D0D10] sm:grid-cols-3 lg:grid-cols-5">
+            {[
+              {
+                label: "Workflow runs",
+                value: initialLoading ? "—" : totalRuns.toLocaleString(),
+                detail: initialLoading ? "Loading" : rangeLabel,
+                tone: "neutral",
+              },
+              {
+                label: "Success rate",
+                value: initialLoading ? "—" : `${successRate.toFixed(2)}%`,
+                detail: initialLoading ? "Loading" : getHealthLabel(successRate),
+                tone: getHealthTone(successRate),
+              },
+              {
+                label: "Failed runs",
+                value: initialLoading ? "—" : failedRuns.toLocaleString(),
+                detail: initialLoading ? "Loading" : failedRuns > 0 ? "Needs attention" : "No failures",
+                tone: failedRuns > 0 ? "danger" : "success",
+              },
+              {
+                label: "Active anomalies",
+                value: anomaliesQuery.isPending ? "—" : activeAnomalies.toLocaleString(),
+                detail: anomaliesQuery.isPending ? "Loading" : highPriorityAnomalies > 0 ? `${highPriorityAnomalies} high priority` : "Baseline monitoring",
+                tone: activeAnomalies > 0 ? "warning" : "neutral",
+              },
+              {
+                label: "Mean execution",
+                value: initialLoading ? "—" : avgDurationMs !== null ? formatDuration(avgDurationMs) : "—",
+                detail: avgDurationMs !== null ? "Average duration" : "No completed runs",
+                tone: "neutral",
+              },
+            ].map((item, index) => (
+              <div
+                key={item.label}
+                className={`min-h-[104px] px-5 py-4 ${
+                  index > 0 ? "border-l border-white/[0.05]" : ""
+                }`}
               >
-                {r}
-              </button>
+                <p className="text-[10px] font-medium text-white/35">
+                  {item.label}
+                </p>
+
+                <p className="mt-3 text-[28px] font-semibold leading-none tracking-[-0.05em] tabular-nums text-white/95">
+                  {item.value}
+                </p>
+
+                <div className="mt-3 flex items-center gap-1.5">
+                  <span
+                    className={cn(
+                      "size-1.5 rounded-full",
+                      item.tone === "success" && "bg-emerald-400/75",
+                      item.tone === "warning" && "bg-amber-400/75",
+                      item.tone === "danger" && "bg-red-400/70",
+                      item.tone === "neutral" && "bg-white/20",
+                    )}
+                  />
+                  <span className="truncate text-[10px] text-white/22">
+                    {item.detail}
+                  </span>
+                </div>
+              </div>
             ))}
           </div>
-        </div>
-      </Reveal>
-
-      {/* ------------------------------------------------------------------ */}
-      {/* Health snapshot                                                     */}
-      {/* ------------------------------------------------------------------ */}
-      <Reveal distance={16}>
-        <div className="grid overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02] sm:grid-cols-2 lg:grid-cols-4">
-          <DashboardMetric
-            label="Total runs"
-            value={
-              loading
-                ? "—"
-                : dashboardTotals.total.toLocaleString()
-            }
-            icon={Activity}
-          />
-
-          <DashboardMetric
-            label="Success rate"
-            value={
-              loading
-                ? "—"
-                : `${Math.round(dashboardTotals.successRate * 100)}%`
-            }
-            icon={CheckCircle2}
-            sublabel={!loading ? healthLabel : undefined}
-            tone={getHealthTone(dashboardTotals.successRate)}
-          />
-
-          <DashboardMetric
-            label="Failed"
-            value={loading ? "—" : dashboardTotals.failed.toLocaleString()}
-            icon={AlertCircle}
-            tone={
-              dashboardTotals.failed > 0 ? "danger" : "neutral"
-            }
-          />
-
-          <DashboardMetric
-            label="Active"
-            value={loading ? "—" : dashboardTotals.active.toLocaleString()}
-            icon={Radio}
-            tone={
-              dashboardTotals.active > 0 ? "active" : "neutral"
-            }
-          />
-        </div>
-      </Reveal>
-
-      {/* ------------------------------------------------------------------ */}
-      {/* Activity + health                                                   */}
-      {/* ------------------------------------------------------------------ */}
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.75fr)_minmax(280px,0.75fr)]">
-        <Reveal distance={18}>
-          <Card className="overflow-hidden">
-            <CardHeader className="flex-row items-center justify-between border-b border-white/[0.05] pb-4">
-              <div>
-                <CardTitle className="text-sm font-medium text-white/70">
-                  Execution activity
-                </CardTitle>
-                <p className="mt-1 text-xs text-white/30">
-                  {range === "24h"
-                    ? "Last 24 hours"
-                    : range === "7d"
-                      ? "Last 7 days"
-                      : range === "30d"
-                        ? "Last 30 days"
-                        : "Last 90 days"}
-                </p>
-              </div>
-
-              <div className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-white/25">
-                <TrendingUp className="size-3.5" />
-                Runs
-              </div>
-            </CardHeader>
-
-            <CardContent className="pt-5">
-              {stats.isPending ? (
-                <ChartSkeleton />
-              ) : (
-                <ActivityChart data={stats.data?.series ?? []} />
-              )}
-            </CardContent>
-          </Card>
         </Reveal>
 
-        <Reveal delay={0.06} distance={18}>
-          <Card className="h-full">
-            <CardHeader className="pb-3">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <CardTitle className="text-sm font-medium text-white/70">
-                    Workspace health
-                  </CardTitle>
-                  <p className="mt-1 text-xs text-white/30">
-                    Current execution signal
-                  </p>
+        {/* ================================================================
+            HEALTH / RELIABILITY
+        ================================================================ */}
+
+        <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_330px]">
+
+          {/* ==============================================================
+              WORKFLOW HEALTH
+          ============================================================== */}
+
+          <Reveal
+            delay={0.06}
+            distance={10}
+          >
+            <Card className="overflow-hidden rounded-xl border-white/[0.065] bg-[#0D0D10] shadow-none">
+              <CardContent className="p-0">
+
+                <div className="flex items-center justify-between border-b border-white/[0.055] px-5 py-4">
+                  <div>
+                    <h2 className="text-sm font-medium text-white/80">
+                      Workflow health
+                    </h2>
+
+                    <p className="mt-1 text-[11px] text-white/28">
+                      Executions and failures
+                      over time
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-4">
+                    <ChartLegend
+                      label="Runs"
+                      color="bg-indigo-400"
+                    />
+
+                    <ChartLegend
+                      label="Failed"
+                      color="bg-red-400"
+                    />
+                  </div>
                 </div>
 
-                <Gauge className="size-4 text-white/20" />
-              </div>
-            </CardHeader>
-
-            <CardContent>
-              <div className="flex items-end justify-between">
-                <div>
-                  <p className="text-3xl font-semibold tracking-tight text-white/90">
-                    {loading
-                      ? "—"
-                      : `${Math.round(
-                          dashboardTotals.successRate * 100,
-                        )}%`}
-                  </p>
-
-                  <p
-                    className={cn(
-                      "mt-1 text-xs",
-                      getHealthTextClass(
-                        dashboardTotals.successRate,
-                      ),
-                    )}
-                  >
-                    {loading ? "Loading..." : healthLabel}
-                  </p>
-                </div>
-
-                <span
-                  className={cn(
-                    "mb-1 h-2 w-2 rounded-full",
-                    getHealthDot(
-                      dashboardTotals.successRate,
-                    ),
+                <div className="relative h-[300px] px-4 pb-5 pt-5 sm:px-5">
+                  {statsQuery.isPending ? (
+                    <ChartSkeleton />
+                  ) : series.length ===
+                    0 ? (
+                    <EmptyChart />
+                  ) : (
+                    <ExecutionChart
+                      chart={chart}
+                    />
                   )}
-                />
-              </div>
+                </div>
+              </CardContent>
+            </Card>
+          </Reveal>
 
-              <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
-                <div
-                  className="h-full rounded-full bg-white/70 transition-all duration-500"
-                  style={{
-                    width: `${
-                      Math.min(
-                        100,
-                        Math.max(
-                          0,
-                          dashboardTotals.successRate * 100,
-                        ),
-                      )
-                    }%`,
-                  }}
-                />
-              </div>
+          {/* ==============================================================
+              RELIABILITY
+          ============================================================== */}
 
-              <div className="mt-4 grid grid-cols-2 gap-3">
-                <MiniMetric
-                  label="Failed"
-                  value={dashboardTotals.failed}
-                  tone={
-                    dashboardTotals.failed > 0
-                      ? "danger"
-                      : "neutral"
-                  }
-                />
-                <MiniMetric
-                  label="Active"
-                  value={dashboardTotals.active}
-                  tone={
-                    dashboardTotals.active > 0
-                      ? "active"
-                      : "neutral"
-                  }
-                />
-              </div>
-            </CardContent>
-          </Card>
-        </Reveal>
-      </div>
+          <Reveal
+            delay={0.09}
+            distance={10}
+          >
+            <ReliabilityCard
+              loading={
+                statsQuery.isPending
+              }
+              successRate={
+                successRate
+              }
+              failedRuns={
+                failedRuns
+              }
+              activeRuns={
+                activeRuns
+              }
+              anomalies={
+                activeAnomalies
+              }
+            />
+          </Reveal>
+        </div>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* Recent + attention                                                  */}
-      {/* ------------------------------------------------------------------ */}
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
-        <Reveal distance={18}>
-          <Card>
-            <CardHeader className="flex-row items-center justify-between pb-3">
+        {/* ================================================================
+            RECENT EXECUTIONS
+        ================================================================ */}
+
+        <Reveal
+          delay={0.12}
+          distance={10}
+        >
+          <section className="mt-5 overflow-hidden rounded-xl border border-white/[0.065] bg-[#0D0D10]">
+
+            <div className="flex items-center justify-between border-b border-white/[0.055] px-5 py-4">
               <div>
-                <CardTitle className="text-sm font-medium text-white/70">
+                <h2 className="text-sm font-medium text-white/80">
                   Recent executions
-                </CardTitle>
-                <p className="mt-1 text-xs text-white/30">
+                </h2>
+
+                <p className="mt-1 text-[11px] text-white/28">
                   Latest workflow activity
+                  across your workspace
                 </p>
               </div>
 
               <Link
                 href="/executions"
-                className="flex items-center gap-1 text-xs text-white/35 transition-colors hover:text-white/75"
+                className="flex items-center gap-1.5 text-[11px] text-white/35 transition-colors hover:text-white/75"
               >
                 View all
                 <ArrowRight className="size-3" />
               </Link>
-            </CardHeader>
+            </div>
 
-            <CardContent className="pt-0">
-              {executions.isPending ? (
-                <RecentExecutionsSkeleton />
-              ) : recentExecutions.length === 0 ? (
-                <EmptyPanel
-                  icon={Zap}
-                  title="No executions yet"
-                  description="Run a workflow to start seeing activity here."
-                  href="/workflows"
-                  action="Open workflows"
-                />
-              ) : (
-                <div>
-                  {recentExecutions.slice(0, 7).map((execution, index) => (
-                    <Link
-                      key={execution.id}
-                      href={`/executions/${execution.id}`}
-                      className={cn(
-                        "group flex items-center gap-3 px-1 py-3 transition-colors hover:bg-white/[0.025]",
-                        index < Math.min(recentExecutions.length, 7) - 1 &&
-                          "border-b border-white/[0.05]",
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "size-2 shrink-0 rounded-full",
-                          statusDotColor(execution.status),
-                        )}
-                      />
-
-                      <span className="min-w-0 flex-1">
-                        <span className="flex items-center gap-2">
-                          <span className="truncate text-xs font-medium text-white/75 group-hover:text-white/90">
-                            {execution.workflowName ??
-                              execution.workflowId.slice(0, 8)}
-                          </span>
-
-                          <span className="hidden rounded border border-white/[0.06] bg-white/[0.02] px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-wider text-white/25 sm:inline">
-                            internal
-                          </span>
-                        </span>
-
-                        <span className="mt-0.5 block truncate font-mono text-[10px] text-white/25">
-                          v{execution.versionNumber} ·{" "}
-                          {execution.triggerType.toLowerCase()}
-                        </span>
-                      </span>
-
-                      <span className="hidden shrink-0 text-right sm:block">
-                        <span className="block text-[10px] text-white/35">
-                          {formatRelativeTime(execution.createdAt)}
-                        </span>
-                        <span className="mt-0.5 block font-mono text-[9px] text-white/20">
-                          {formatDuration(execution.durationMs)}
-                        </span>
-                      </span>
-
-                      <ArrowRight className="size-3.5 shrink-0 text-white/10 transition group-hover:text-white/35" />
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+            {executionsQuery.isPending ? (
+              <ExecutionTableSkeleton />
+            ) : executionsQuery.isError ? (
+              <QueryError
+                message="Unable to load recent executions."
+                onRetry={() =>
+                  executionsQuery.refetch()
+                }
+              />
+            ) : recentExecutions.length ===
+              0 ? (
+              <EmptyExecutions />
+            ) : (
+              <ExecutionTable
+                executions={
+                  recentExecutions
+                }
+              />
+            )}
+          </section>
         </Reveal>
 
-        <Reveal delay={0.06} distance={18}>
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-white/70">
-                Attention required
-              </CardTitle>
-              <p className="mt-1 text-xs text-white/30">
-                Things worth looking at now
-              </p>
-            </CardHeader>
+        {/* ================================================================
+            QUICK LINKS
+        ================================================================ */}
 
-            <CardContent className="space-y-2 pt-0">
-              <AttentionItem
-                tone="danger"
-                icon={AlertCircle}
-                title={
-                  dashboardTotals.failed > 0
-                    ? `${dashboardTotals.failed} failed execution${
-                        dashboardTotals.failed === 1 ? "" : "s"
-                      }`
-                    : "No failed executions"
-                }
-                description={
-                  failedExecutions.length > 0
-                    ? "Recent failures are available for investigation."
-                    : "Your recent execution feed is currently clean."
-                }
-                href={
-                  dashboardTotals.failed > 0
-                    ? "/executions?status=FAILED"
-                    : "/executions"
-                }
-              />
+        <StaggerGroup stagger={0.035}>
+          <div className="mt-5 grid gap-3 sm:grid-cols-3">
 
-              <AttentionItem
-                tone="active"
-                icon={Radio}
-                title={
-                  dashboardTotals.active > 0
-                    ? `${dashboardTotals.active} active execution${
-                        dashboardTotals.active === 1 ? "" : "s"
-                      }`
-                    : "No active executions"
-                }
-                description={
-                  activeExecutions.length > 0
-                    ? "A workflow is currently running or waiting."
-                    : "Nothing is currently running."
-                }
-                href="/executions?status=RUNNING"
-              />
-
-              <AttentionItem
-                tone="neutral"
-                icon={Clock}
-                title={
-                  dashboardTotals.avgDurationMs !== null
-                    ? `Avg duration ${formatDuration(
-                        dashboardTotals.avgDurationMs,
-                      )}`
-                    : "Average duration unavailable"
-                }
-                description="Monitor this over time for execution drift."
+            <StaggerItem distance={8}>
+              <DashboardLink
                 href="/executions"
+                title="Execution history"
+                description="Inspect runs, timing and outputs"
               />
-            </CardContent>
-          </Card>
-        </Reveal>
-      </div>
+            </StaggerItem>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* Operational footer                                                 */}
-      {/* ------------------------------------------------------------------ */}
-      <Reveal distance={14}>
-        <div className="grid gap-5 lg:grid-cols-2">
-          <OperationalCard
-            icon={Activity}
-            title="Internal execution"
-            description="Workflows executed by FlowOps."
-            value="Native"
-            href="/executions"
-          />
+            <StaggerItem distance={8}>
+              <DashboardLink
+                href="/anomalies"
+                title="Reliability"
+                description="Review anomalies and behavioral drift"
+              />
+            </StaggerItem>
 
-          <OperationalCard
-            icon={ExternalLink}
-            title="External monitoring"
-            description="Provider executions monitored by FlowOps."
-            value="Connected"
-            href="/executions"
-          />
+            <StaggerItem distance={8}>
+              <DashboardLink
+                href="/integrations"
+                title="Integrations"
+                description="Manage workflow connections"
+              />
+            </StaggerItem>
+          </div>
+        </StaggerGroup>
+
+        {/* ================================================================
+            FOOTER
+        ================================================================ */}
+
+        <div className="mt-6 flex items-center justify-between border-t border-white/[0.045] pt-3">
+          <span className="text-[9px] text-white/18">
+            {rangeLabel}
+          </span>
+
+          <span className="font-mono text-[9px] uppercase tracking-[0.13em] text-white/12">
+            FLOWOPS / EXECUTION CONTROL
+          </span>
         </div>
-      </Reveal>
-    </div>
+      </div>
+    </main>
   );
 }
+
+/* ==========================================================================
+   DASHBOARD METRIC
+============================================================================ */
 
 function DashboardMetric({
   label,
   value,
-  icon: Icon,
   sublabel,
+  icon,
   tone = "neutral",
 }: {
   label: string;
   value: string;
-  icon: typeof Activity;
-  sublabel?: string;
-  tone?: "neutral" | "danger" | "active" | "healthy";
+  sublabel: string;
+  icon?: ReactNode;
+  tone?:
+    | "neutral"
+    | "success"
+    | "warning"
+    | "danger";
 }) {
   return (
-    <HoverLift scale={1.01} y={-1}>
-      <div className="border-b border-white/[0.06] px-5 py-4 first:lg:border-l-0 lg:border-b-0 lg:border-r lg:last:border-r-0">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-white/38">
-            {label}
+    <div className="min-h-[142px] border-r border-white/[0.05] px-5 py-4 last:border-r-0">
+      <div className="flex items-center gap-1.5">
+        {icon && (
+          <span className="text-white/25">
+            {icon}
           </span>
-          <Icon
-            className={cn(
-              "size-4",
-              tone === "danger"
-                ? "text-red-400/65"
-                : tone === "active"
-                  ? "text-amber-300/70"
-                  : tone === "healthy"
-                    ? "text-emerald-400/65"
-                    : "text-white/20",
-            )}
-          />
-        </div>
-
-        <div className="mt-1.5 text-2xl font-semibold tracking-tight text-white/90">
-          {value}
-        </div>
-
-        {sublabel && (
-          <p
-            className={cn(
-              "mt-1 text-[10px]",
-              tone === "healthy"
-                ? "text-emerald-400/60"
-                : "text-white/25",
-            )}
-          >
-            {sublabel}
-          </p>
         )}
+
+        <span className="text-[10px] font-medium text-white/35">
+          {label}
+        </span>
       </div>
-    </HoverLift>
+
+      <div className="mt-4 text-[30px] font-semibold leading-none tracking-[-0.05em] tabular-nums text-white/95">
+        {value}
+      </div>
+
+      <div className="mt-3 flex items-center gap-1.5">
+        <span
+          className={cn(
+            "size-1.5 rounded-full",
+            tone === "success" &&
+              "bg-emerald-400/75",
+            tone === "warning" &&
+              "bg-amber-400/75",
+            tone === "danger" &&
+              "bg-red-400/70",
+            tone === "neutral" &&
+              "bg-white/20",
+          )}
+        />
+
+        <span className="truncate text-[10px] text-white/22">
+          {sublabel}
+        </span>
+      </div>
+    </div>
   );
 }
 
-function MiniMetric({
+/* ==========================================================================
+   CHART
+============================================================================ */
+
+type ChartPoint = {
+  x: number;
+  total: number;
+  failed: number;
+  label: string;
+};
+
+function buildChart(
+  series: Array<{
+    bucketStart: string;
+    total: number;
+    failed: number;
+  }>,
+) {
+  const width = 760;
+  const height = 240;
+  const paddingX = 12;
+  const paddingTop = 12;
+  const paddingBottom = 12;
+
+  if (!series.length) {
+    return {
+      width,
+      height,
+      points: [] as ChartPoint[],
+      max: 1,
+    };
+  }
+
+  const max = Math.max(
+    ...series.map(point =>
+      Math.max(
+        point.total,
+        point.failed,
+      ),
+    ),
+    1,
+  );
+
+  const usableWidth =
+    width - paddingX * 2;
+
+  const usableHeight =
+    height -
+    paddingTop -
+    paddingBottom;
+
+  const points: ChartPoint[] =
+    series.map(
+      (point, index) => {
+        const x =
+          series.length === 1
+            ? width / 2
+            : paddingX +
+              (index /
+                (series.length -
+                  1)) *
+                usableWidth;
+
+        return {
+          x,
+          total: point.total,
+          failed: point.failed,
+          label: formatBucket(
+            point.bucketStart,
+          ),
+        };
+      },
+    );
+
+  return {
+    width,
+    height,
+    points,
+    max,
+    paddingTop,
+    usableHeight,
+  };
+}
+
+function ExecutionChart({
+  chart,
+}: {
+  chart: ReturnType<
+    typeof buildChart
+  >;
+}) {
+  const {
+    width,
+    height,
+    points,
+    max,
+    paddingTop,
+    usableHeight,
+  } = chart;
+
+  const totalPoints =
+    points.map(point => ({
+      x: point.x,
+      y:
+        height -
+        12 -
+        (point.total / max) *
+          usableHeight,
+    }));
+
+  const failedPoints =
+    points.map(point => ({
+      x: point.x,
+      y:
+        height -
+        12 -
+        (point.failed / max) *
+          usableHeight,
+    }));
+
+  const totalPath =
+    createLinePath(totalPoints);
+
+  const failedPath =
+    createLinePath(
+      failedPoints,
+    );
+
+  const totalArea =
+    totalPoints.length
+      ? `${totalPath} L ${
+          totalPoints[
+            totalPoints.length - 1
+          ].x
+        } ${height - 12} L ${
+          totalPoints[0].x
+        } ${height - 12} Z`
+      : "";
+
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      preserveAspectRatio="none"
+      className="h-full w-full"
+    >
+      <defs>
+        <linearGradient
+          id="runs-area"
+          x1="0"
+          y1="0"
+          x2="0"
+          y2="1"
+        >
+          <stop
+            offset="0%"
+            stopColor="rgb(99 102 241)"
+            stopOpacity="0.12"
+          />
+
+          <stop
+            offset="100%"
+            stopColor="rgb(99 102 241)"
+            stopOpacity="0"
+          />
+        </linearGradient>
+      </defs>
+
+      {/* GRID */}
+
+      {[0, 1, 2, 3, 4].map(
+        index => {
+          const y =
+            paddingTop +
+            (index *
+              usableHeight) /
+              4;
+
+          return (
+            <line
+              key={index}
+              x1="12"
+              x2="748"
+              y1={y}
+              y2={y}
+              stroke="rgba(255,255,255,0.045)"
+              strokeWidth="1"
+            />
+          );
+        },
+      )}
+
+      {/* AREA */}
+
+      {totalArea && (
+        <path
+          d={totalArea}
+          fill="url(#runs-area)"
+        />
+      )}
+
+      {/* RUNS */}
+
+      {totalPath && (
+        <path
+          d={totalPath}
+          fill="none"
+          stroke="rgb(129 140 248)"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      )}
+
+      {/* FAILED */}
+
+      {failedPath && (
+        <path
+          d={failedPath}
+          fill="none"
+          stroke="rgb(248 113 113)"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      )}
+
+      {/* RUN POINTS */}
+
+      {totalPoints.map(
+        (point, index) => (
+          <circle
+            key={`total-${index}`}
+            cx={point.x}
+            cy={point.y}
+            r="2.25"
+            fill="rgb(129 140 248)"
+            stroke="#0D0D10"
+            strokeWidth="2"
+          />
+        ),
+      )}
+
+      {/* FAILED POINTS */}
+
+      {failedPoints.map(
+        (point, index) => {
+          if (
+            points[index]
+              .failed === 0
+          ) {
+            return null;
+          }
+
+          return (
+            <circle
+              key={`failed-${index}`}
+              cx={point.x}
+              cy={point.y}
+              r="2"
+              fill="rgb(248 113 113)"
+              stroke="#0D0D10"
+              strokeWidth="2"
+            />
+          );
+        },
+      )}
+    </svg>
+  );
+}
+
+function createLinePath(
+  points: Array<{
+    x: number;
+    y: number;
+  }>,
+) {
+  if (!points.length) {
+    return "";
+  }
+
+  return points
+    .map(
+      (point, index) =>
+        `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`,
+    )
+    .join(" ");
+}
+
+/* ==========================================================================
+   RELIABILITY
+============================================================================ */
+
+function ReliabilityCard({
+  loading,
+  successRate,
+  failedRuns,
+  activeRuns,
+  anomalies,
+}: {
+  loading: boolean;
+  successRate: number;
+  failedRuns: number;
+  activeRuns: number;
+  anomalies: number;
+}) {
+  const clamped =
+    Math.max(
+      0,
+      Math.min(
+        100,
+        successRate,
+      ),
+    );
+
+  const radius = 42;
+
+  const circumference =
+    2 * Math.PI * radius;
+
+  const offset =
+    circumference -
+    (clamped / 100) *
+      circumference;
+
+  return (
+    <Card className="h-full overflow-hidden rounded-xl border-white/[0.065] bg-[#0D0D10] shadow-none">
+      <CardContent className="p-0">
+
+        <div className="border-b border-white/[0.055] px-5 py-4">
+          <h2 className="text-sm font-medium text-white/80">
+            Reliability
+          </h2>
+
+          <p className="mt-1 text-[11px] text-white/28">
+            Execution health
+          </p>
+        </div>
+
+        <div className="px-5 py-5">
+
+          <div className="flex items-center gap-5">
+            <div className="relative size-[112px] shrink-0">
+              <svg
+                viewBox="0 0 112 112"
+                className="size-full -rotate-90"
+              >
+                <circle
+                  cx="56"
+                  cy="56"
+                  r={radius}
+                  fill="none"
+                  stroke="rgba(255,255,255,0.055)"
+                  strokeWidth="9"
+                />
+
+                {!loading && (
+                  <circle
+                    cx="56"
+                    cy="56"
+                    r={radius}
+                    fill="none"
+                    stroke={getHealthStroke(
+                      successRate,
+                    )}
+                    strokeWidth="9"
+                    strokeLinecap="round"
+                    strokeDasharray={
+                      circumference
+                    }
+                    strokeDashoffset={
+                      offset
+                    }
+                    className="transition-all duration-500"
+                  />
+                )}
+              </svg>
+
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className="text-[19px] font-semibold tracking-[-0.04em] text-white">
+                  {loading
+                    ? "—"
+                    : `${successRate.toFixed(
+                        1,
+                      )}%`}
+                </span>
+
+                <span className="mt-0.5 font-mono text-[7px] uppercase tracking-[0.12em] text-white/20">
+                  success
+                </span>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-sm font-medium text-white/70">
+                {loading
+                  ? "Loading"
+                  : getHealthLabel(
+                      successRate,
+                    )}
+              </p>
+
+              <p className="mt-1 text-[11px] leading-5 text-white/25">
+                Workflow execution
+                reliability
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-6 border-t border-white/[0.05]">
+
+            <ReliabilityRow
+              label="Succeeded"
+              value={
+                loading
+                  ? "—"
+                  : `${successRate.toFixed(
+                      1,
+                    )}%`
+              }
+              tone="success"
+            />
+
+            <ReliabilityRow
+              label="Failed"
+              value={
+                loading
+                  ? "—"
+                  : failedRuns.toLocaleString()
+              }
+              tone={
+                failedRuns > 0
+                  ? "danger"
+                  : "neutral"
+              }
+            />
+
+            <ReliabilityRow
+              label="Active"
+              value={
+                loading
+                  ? "—"
+                  : activeRuns.toLocaleString()
+              }
+              tone={
+                activeRuns > 0
+                  ? "active"
+                  : "neutral"
+              }
+            />
+
+            <ReliabilityRow
+              label="Open anomalies"
+              value={anomalies.toLocaleString()}
+              tone={
+                anomalies > 0
+                  ? "warning"
+                  : "neutral"
+              }
+            />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/* ==========================================================================
+   RELIABILITY ROW
+============================================================================ */
+
+function ReliabilityRow({
   label,
   value,
   tone,
 }: {
   label: string;
-  value: number;
-  tone: "neutral" | "danger" | "active";
-}) {
-  return (
-    <div className="rounded-lg border border-white/[0.06] bg-white/[0.018] px-3 py-2.5">
-      <p className="text-[9px] font-mono uppercase tracking-wider text-white/25">
-        {label}
-      </p>
-      <p
-        className={cn(
-          "mt-1 text-sm font-semibold tabular-nums",
-          tone === "danger"
-            ? "text-red-300/85"
-            : tone === "active"
-              ? "text-amber-200/85"
-              : "text-white/60",
-        )}
-      >
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function ActivityChart({
-  data,
-}: {
-  data: { bucketStart: string; total: number }[];
-}) {
-  if (data.length === 0) {
-    return (
-      <div className="flex h-44 items-center justify-center rounded-lg border border-dashed border-white/[0.06] bg-white/[0.012] text-sm text-white/25">
-        No execution data for this period
-      </div>
-    );
-  }
-
-  const values = data.map((item) => item.total);
-  const max = Math.max(...values, 1);
-
-  return (
-    <div className="space-y-3">
-      <div className="flex h-44 items-end gap-1.5 rounded-lg border border-white/[0.06] bg-white/[0.012] px-3 pb-3 pt-5">
-        {data.map((item, index) => {
-          const percentage = Math.max(
-            item.total > 0 ? 5 : 1,
-            (item.total / max) * 100,
-          );
-
-          return (
-            <div
-              key={`${item.bucketStart}-${index}`}
-              className="group relative flex h-full min-w-0 flex-1 items-end"
-              title={`${item.total} runs`}
-            >
-              <div
-                className="w-full rounded-t-sm bg-white/[0.16] transition-all duration-300 group-hover:bg-white/[0.28]"
-                style={{ height: `${percentage}%` }}
-              />
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="flex items-center justify-between px-1 font-mono text-[9px] text-white/20">
-        <span>{formatBucket(data[0]?.bucketStart)}</span>
-        <span>{formatBucket(data[Math.floor(data.length / 2)]?.bucketStart)}</span>
-        <span>{formatBucket(data[data.length - 1]?.bucketStart)}</span>
-      </div>
-    </div>
-  );
-}
-
-function AttentionItem({
-  tone,
-  icon: Icon,
-  title,
-  description,
-  href,
-}: {
-  tone: "danger" | "active" | "neutral";
-  icon: typeof AlertCircle;
-  title: string;
-  description: string;
-  href: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className="group flex items-start gap-3 rounded-lg border border-white/[0.06] bg-white/[0.018] p-3 transition hover:border-white/[0.1] hover:bg-white/[0.03]"
-    >
-      <span
-        className={cn(
-          "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md",
-          tone === "danger"
-            ? "bg-red-500/[0.08] text-red-300/75"
-            : tone === "active"
-              ? "bg-amber-500/[0.08] text-amber-300/75"
-              : "bg-white/[0.05] text-white/35",
-        )}
-      >
-        <Icon className="size-3.5" />
-      </span>
-
-      <span className="min-w-0 flex-1">
-        <span className="block text-xs font-medium text-white/70 group-hover:text-white/90">
-          {title}
-        </span>
-        <span className="mt-1 block text-[10px] leading-4 text-white/28">
-          {description}
-        </span>
-      </span>
-
-      <ArrowRight className="mt-1 size-3.5 shrink-0 text-white/10 transition group-hover:text-white/35" />
-    </Link>
-  );
-}
-
-function OperationalCard({
-  icon: Icon,
-  title,
-  description,
-  value,
-  href,
-}: {
-  icon: typeof Activity;
-  title: string;
-  description: string;
   value: string;
+  tone:
+    | "success"
+    | "danger"
+    | "warning"
+    | "active"
+    | "neutral";
+}) {
+  return (
+    <div className="flex items-center justify-between border-b border-white/[0.045] py-3 last:border-b-0">
+      <div className="flex items-center gap-2">
+        <span
+          className={cn(
+            "size-1.5 rounded-full",
+            tone === "success" &&
+              "bg-emerald-400/75",
+            tone === "danger" &&
+              "bg-red-400/70",
+            tone === "warning" &&
+              "bg-amber-400/70",
+            tone === "active" &&
+              "bg-indigo-400/70",
+            tone === "neutral" &&
+              "bg-white/15",
+          )}
+        />
+
+        <span className="text-[11px] text-white/32">
+          {label}
+        </span>
+      </div>
+
+      <span className="text-[11px] tabular-nums text-white/55">
+        {value}
+      </span>
+    </div>
+  );
+}
+
+/* ==========================================================================
+   EXECUTION TABLE
+============================================================================ */
+
+function ExecutionTable({
+  executions,
+}: {
+  executions: ExecutionSummary[];
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <div className="min-w-[760px]">
+
+        {/* HEADER */}
+
+        <div className="grid grid-cols-[minmax(280px,1.8fr)_110px_90px_110px_100px] border-b border-white/[0.045] px-5 py-2.5">
+          <TableHeader>
+            Workflow
+          </TableHeader>
+
+          <TableHeader>
+            Status
+          </TableHeader>
+
+          <TableHeader>
+            Duration
+          </TableHeader>
+
+          <TableHeader>
+            Started
+          </TableHeader>
+
+          <TableHeader>
+            Trigger
+          </TableHeader>
+        </div>
+
+        {/* ROWS */}
+
+        {executions.map(
+          execution => (
+            <Link
+              key={execution.id}
+              href={`/executions/${execution.id}`}
+              className="group grid grid-cols-[minmax(280px,1.8fr)_110px_90px_110px_100px] items-center border-b border-white/[0.04] px-5 py-3.5 transition-colors last:border-b-0 hover:bg-white/[0.018]"
+            >
+              {/* WORKFLOW */}
+
+              <div className="min-w-0">
+                <p className="truncate text-[12px] font-medium text-white/70 transition-colors group-hover:text-white">
+                  {execution.workflowName ??
+                    "Untitled workflow"}
+                </p>
+
+                <p className="mt-1 truncate font-mono text-[9px] text-white/18">
+                  v
+                  {
+                    execution.versionNumber
+                  }{" "}
+                  ·{" "}
+                  {execution.id.slice(
+                    0,
+                    10,
+                  )}
+                </p>
+              </div>
+
+              {/* STATUS */}
+
+              <div>
+                <ExecutionStatusBadge
+                  status={
+                    execution.status
+                  }
+                />
+              </div>
+
+              {/* DURATION */}
+
+              <span className="text-[10px] tabular-nums text-white/35">
+                {execution.durationMs !==
+                null
+                  ? formatDuration(
+                      execution.durationMs,
+                    )
+                  : "—"}
+              </span>
+
+              {/* STARTED */}
+
+              <span className="text-[10px] text-white/30">
+                {formatRelativeTime(
+                  execution.createdAt,
+                )}
+              </span>
+
+              {/* TRIGGER */}
+
+              <span className="truncate text-[10px] text-white/28">
+                {formatTrigger(
+                  execution.triggerType,
+                )}
+              </span>
+            </Link>
+          ),
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ==========================================================================
+   STATUS
+============================================================================ */
+
+function ExecutionStatusBadge({
+  status,
+}: {
+  status: ExecutionStatus;
+}) {
+  const config =
+    getExecutionStatusConfig(
+      status,
+    );
+
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        "rounded-md border px-2 py-0.5 text-[9px] font-medium",
+        config.className,
+      )}
+    >
+      {config.label}
+    </Badge>
+  );
+}
+
+function getExecutionStatusConfig(
+  status: ExecutionStatus,
+) {
+  switch (status) {
+    case "SUCCEEDED":
+      return {
+        label: "Succeeded",
+        className:
+          "border-emerald-400/15 bg-emerald-400/[0.045] text-emerald-300/70",
+      };
+
+    case "FAILED":
+      return {
+        label: "Failed",
+        className:
+          "border-red-400/15 bg-red-400/[0.045] text-red-300/70",
+      };
+
+    case "RUNNING":
+      return {
+        label: "Running",
+        className:
+          "border-indigo-400/15 bg-indigo-400/[0.045] text-indigo-300/70",
+      };
+
+    case "WAITING":
+      return {
+        label: "Waiting",
+        className:
+          "border-blue-400/15 bg-blue-400/[0.045] text-blue-300/70",
+      };
+
+    case "QUEUED":
+      return {
+        label: "Queued",
+        className:
+          "border-amber-400/15 bg-amber-400/[0.045] text-amber-300/70",
+      };
+
+    case "CANCELED":
+      return {
+        label: "Canceled",
+        className:
+          "border-white/[0.08] bg-white/[0.025] text-white/35",
+      };
+  }
+}
+
+/* ==========================================================================
+   DASHBOARD LINKS
+============================================================================ */
+
+function DashboardLink({
+  href,
+  title,
+  description,
+}: {
   href: string;
+  title: string;
+  description: string;
 }) {
   return (
     <Link
       href={href}
-      className="group flex items-center gap-4 rounded-xl border border-white/[0.08] bg-white/[0.02] px-4 py-3.5 transition hover:bg-white/[0.035]"
+      className="group block rounded-xl border border-white/[0.06] bg-[#0D0D10] px-4 py-3.5 transition-colors hover:border-white/[0.10] hover:bg-[#0F0F12]"
     >
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.04] text-white/35">
-        <Icon className="size-4" />
-      </span>
-
-      <span className="min-w-0 flex-1">
-        <span className="block text-xs font-medium text-white/65 group-hover:text-white/85">
+      <div className="flex items-center justify-between">
+        <span className="text-[12px] font-medium text-white/60 transition-colors group-hover:text-white/85">
           {title}
         </span>
-        <span className="mt-0.5 block truncate text-[10px] text-white/25">
-          {description}
-        </span>
-      </span>
 
-      <span className="shrink-0 rounded-full border border-white/[0.07] bg-white/[0.025] px-2 py-1 font-mono text-[9px] uppercase tracking-wider text-white/30">
-        {value}
-      </span>
-    </Link>
-  );
-}
+        <ArrowRight className="size-3 text-white/18 transition-all group-hover:translate-x-0.5 group-hover:text-white/50" />
+      </div>
 
-function EmptyPanel({
-  icon: Icon,
-  title,
-  description,
-  action,
-  href,
-}: {
-  icon: typeof Zap;
-  title: string;
-  description: string;
-  action: string;
-  href: string;
-}) {
-  return (
-    <div className="flex flex-col items-center justify-center px-4 py-10 text-center">
-      <span className="flex size-8 items-center justify-center rounded-lg bg-white/[0.04] text-white/25">
-        <Icon className="size-4" />
-      </span>
-
-      <p className="mt-3 text-sm font-medium text-white/55">
-        {title}
-      </p>
-
-      <p className="mt-1 max-w-xs text-xs leading-5 text-white/25">
+      <p className="mt-1 text-[10px] text-white/22">
         {description}
       </p>
+    </Link>
+  );
+}
 
-      <Link
-        href={href}
-        className="mt-4 text-xs text-white/45 underline underline-offset-2 hover:text-white/80"
-      >
-        {action}
-      </Link>
+/* ==========================================================================
+   CHART LEGEND
+============================================================================ */
+
+function ChartLegend({
+  label,
+  color,
+}: {
+  label: string;
+  color: string;
+}) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span
+        className={cn(
+          "h-1.5 w-3 rounded-full",
+          color,
+        )}
+      />
+
+      <span className="text-[10px] text-white/30">
+        {label}
+      </span>
     </div>
   );
 }
+
+/* ==========================================================================
+   LOADING
+============================================================================ */
 
 function ChartSkeleton() {
   return (
-    <div className="flex h-44 items-end gap-1.5 rounded-lg border border-white/[0.06] bg-white/[0.012] px-3 pb-3 pt-5">
-      {Array.from({ length: 18 }).map((_, index) => (
-        <Skeleton
-          key={index}
-          className="flex-1 rounded-t-sm"
-          style={{
-            height: `${25 + ((index * 17) % 65)}%`,
-          }}
-        />
-      ))}
+    <div className="flex h-full flex-col justify-end gap-3 pb-8">
+      <Skeleton className="h-px w-full bg-white/[0.045]" />
+      <Skeleton className="h-px w-full bg-white/[0.045]" />
+      <Skeleton className="h-px w-full bg-white/[0.045]" />
+      <Skeleton className="h-20 w-full rounded-lg bg-white/[0.02]" />
     </div>
   );
 }
 
-function RecentExecutionsSkeleton() {
+function ExecutionTableSkeleton() {
   return (
-    <div>
-      {Array.from({ length: 6 }).map((_, index) => (
-        <div
-          key={index}
-          className="flex items-center gap-3 border-b border-white/[0.05] px-1 py-3 last:border-b-0"
-        >
-          <Skeleton className="size-2 rounded-full" />
-          <span className="flex min-w-0 flex-1 flex-col gap-1.5">
-            <Skeleton className="h-3 w-36 max-w-full" />
-            <Skeleton className="h-2.5 w-24 max-w-full" />
-          </span>
-          <Skeleton className="h-2.5 w-12" />
-        </div>
-      ))}
+    <div className="min-w-[760px]">
+      {Array.from(
+        { length: 5 },
+        (_, index) => (
+          <div
+            key={index}
+            className="grid grid-cols-[minmax(280px,1.8fr)_110px_90px_110px_100px] items-center gap-3 border-b border-white/[0.04] px-5 py-3.5"
+          >
+            <div>
+              <Skeleton className="h-3.5 w-36 bg-white/[0.045]" />
+              <Skeleton className="mt-1.5 h-2.5 w-24 bg-white/[0.025]" />
+            </div>
+
+            <Skeleton className="h-5 w-16 rounded-md bg-white/[0.04]" />
+
+            <Skeleton className="h-3 w-10 bg-white/[0.03]" />
+
+            <Skeleton className="h-3 w-14 bg-white/[0.03]" />
+
+            <Skeleton className="h-3 w-14 bg-white/[0.03]" />
+          </div>
+        ),
+      )}
     </div>
   );
+}
+
+/* ==========================================================================
+   EMPTY / ERROR
+============================================================================ */
+
+function EmptyChart() {
+  return (
+    <div className="flex h-full items-center justify-center">
+      <div className="text-center">
+        <Activity className="mx-auto size-5 text-white/15" />
+
+        <p className="mt-2 text-xs text-white/28">
+          No execution activity
+        </p>
+
+        <p className="mt-1 text-[10px] text-white/16">
+          Activity will appear here once
+          workflows run.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function EmptyExecutions() {
+  return (
+    <div className="flex min-h-[180px] flex-col items-center justify-center px-5 text-center">
+      <div className="flex size-10 items-center justify-center rounded-lg border border-white/[0.07] bg-[#111114]">
+        <Activity className="size-4 text-white/25" />
+      </div>
+
+      <p className="mt-3 text-sm text-white/50">
+        No executions yet
+      </p>
+
+      <p className="mt-1 text-[11px] text-white/22">
+        Run a workflow to start seeing
+        activity here.
+      </p>
+    </div>
+  );
+}
+
+function QueryError({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="flex min-h-[160px] flex-col items-center justify-center px-5 text-center">
+      <p className="text-sm text-white/45">
+        {message}
+      </p>
+
+      <button
+        type="button"
+        onClick={onRetry}
+        className="mt-3 text-[11px] text-white/35 underline underline-offset-4 hover:text-white/70"
+      >
+        Retry
+      </button>
+    </div>
+  );
+}
+
+/* ==========================================================================
+   HELPERS
+============================================================================ */
+
+function getRangeLabel(
+  range: StatsRange,
+) {
+  switch (range) {
+    case "24h":
+      return "Today";
+
+    case "7d":
+      return "Last 7 days";
+
+    case "30d":
+      return "Last 30 days";
+
+    case "90d":
+      return "Last 90 days";
+  }
 }
 
 function getHealthLabel(
   successRate: number,
-  failed: number,
-): string {
-  if (failed > 0) return "Needs attention";
-  if (successRate >= 0.99) return "Healthy";
-  if (successRate >= 0.95) return "Stable";
-  if (successRate >= 0.9) return "Watch closely";
-  return "Needs attention";
+) {
+  if (successRate >= 99) {
+    return "Excellent";
+  }
+
+  if (successRate >= 95) {
+    return "Healthy";
+  }
+
+  if (successRate >= 90) {
+    return "Needs attention";
+  }
+
+  return "At risk";
 }
 
 function getHealthTone(
   successRate: number,
-): "neutral" | "healthy" | "danger" {
-  if (successRate >= 0.95) return "healthy";
-  if (successRate >= 0.9) return "neutral";
+):
+  | "neutral"
+  | "success"
+  | "warning"
+  | "danger" {
+  if (successRate >= 95) {
+    return "success";
+  }
+
+  if (successRate >= 90) {
+    return "warning";
+  }
+
   return "danger";
+}
+
+function getHealthStroke(
+  successRate: number,
+) {
+  if (successRate >= 95) {
+    return "rgb(52 211 153)";
+  }
+
+  if (successRate >= 90) {
+    return "rgb(251 191 36)";
+  }
+
+  return "rgb(248 113 113)";
+}
+
+function formatBucket(
+  value: string,
+) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "—";
+  }
+
+  return date.toLocaleDateString(
+    undefined,
+    {
+      month: "short",
+      day: "numeric",
+    },
+  );
+}
+
+function formatTrigger(
+  value: string,
+) {
+  if (!value) {
+    return "—";
+  }
+
+  return value
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(
+      /\b\w/g,
+      character =>
+        character.toUpperCase(),
+    );
 }
 
 function getHealthTextClass(
   successRate: number,
-): string {
-  if (successRate >= 0.95) return "text-emerald-400/60";
-  if (successRate >= 0.9) return "text-white/35";
+) {
+  if (successRate >= 95) {
+    return "text-emerald-300/70";
+  }
+
+  if (successRate >= 90) {
+    return "text-amber-300/70";
+  }
+
   return "text-red-300/70";
 }
 
-function getHealthDot(successRate: number): string {
-  if (successRate >= 0.95) return "bg-emerald-400/80";
-  if (successRate >= 0.9) return "bg-amber-300/80";
+function getHealthDot(
+  successRate: number,
+) {
+  if (successRate >= 95) {
+    return "bg-emerald-400/80";
+  }
+
+  if (successRate >= 90) {
+    return "bg-amber-400/80";
+  }
+
   return "bg-red-400/80";
 }
 
-function isLiveStatus(status: ExecutionStatus): boolean {
+function TableHeader({
+  children,
+}: {
+  children: ReactNode;
+}) {
   return (
-    status === "RUNNING" ||
-    status === "WAITING" ||
-    status === "QUEUED"
+    <span className="text-[9px] font-medium uppercase tracking-[0.1em] text-white/22">
+      {children}
+    </span>
   );
-}
-
-function statusDotColor(status: ExecutionStatus): string {
-  switch (status) {
-    case "SUCCEEDED":
-      return "bg-emerald-500";
-    case "FAILED":
-      return "bg-red-500";
-    case "RUNNING":
-    case "QUEUED":
-      return "bg-amber-500 animate-pulse";
-    case "WAITING":
-      return "bg-blue-500 animate-pulse";
-    default:
-      return "bg-white/20";
-  }
-}
-
-function formatBucket(value?: string): string {
-  if (!value) return "—";
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) return "—";
-
-  return date.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
 }

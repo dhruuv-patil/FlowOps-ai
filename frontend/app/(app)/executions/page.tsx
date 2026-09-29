@@ -2,7 +2,14 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Activity, ExternalLink, Search, X } from "lucide-react";
+import {
+  Activity,
+  ArrowUpRight,
+  Clock3,
+  ExternalLink,
+  Search,
+  X,
+} from "lucide-react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 import {
@@ -24,7 +31,6 @@ import {
 } from "@/lib/format";
 
 import { cn } from "@/lib/utils";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 
 type SourceFilter = "ALL" | "INTERNAL" | "EXTERNAL";
@@ -33,13 +39,13 @@ const STATUS_FILTERS: {
   label: string;
   value: ExecutionStatus | "ALL";
 }[] = [
-  { label: "All statuses", value: "ALL" },
-  { label: "Running", value: "RUNNING" },
-  { label: "Waiting", value: "WAITING" },
-  { label: "Succeeded", value: "SUCCEEDED" },
-  { label: "Failed", value: "FAILED" },
-  { label: "Canceled", value: "CANCELED" },
-];
+    { label: "All statuses", value: "ALL" },
+    { label: "Running", value: "RUNNING" },
+    { label: "Waiting", value: "WAITING" },
+    { label: "Succeeded", value: "SUCCEEDED" },
+    { label: "Failed", value: "FAILED" },
+    { label: "Canceled", value: "CANCELED" },
+  ];
 
 interface MonitoredExecution {
   key: string;
@@ -58,30 +64,30 @@ interface MonitoredExecution {
 
 type UnifiedExecution =
   | {
-      kind: "INTERNAL";
-      id: string;
-      workflowName: string;
-      status: ExecutionStatus;
-      createdAt: string;
-      durationMs: number | null;
-      versionNumber: number;
-      triggerType: string;
-      error: string | null;
-      searchText: string;
-    }
+    kind: "INTERNAL";
+    id: string;
+    workflowName: string;
+    status: ExecutionStatus;
+    createdAt: string;
+    durationMs: number | null;
+    versionNumber: number;
+    triggerType: string;
+    error: string | null;
+    searchText: string;
+  }
   | {
-      kind: "EXTERNAL";
-      key: string;
-      workflowName: string;
-      status: string;
-      createdAt: string;
-      durationMs: number | null;
-      source: string;
-      executionExternalId: string;
-      workflowExternalId: string;
-      nodeCount: number;
-      searchText: string;
-    };
+    kind: "EXTERNAL";
+    key: string;
+    workflowName: string;
+    status: string;
+    createdAt: string;
+    durationMs: number | null;
+    source: string;
+    executionExternalId: string;
+    workflowExternalId: string;
+    nodeCount: number;
+    searchText: string;
+  };
 
 export default function ExecutionsPage() {
   const [source, setSource] = useState<SourceFilter>("ALL");
@@ -151,6 +157,7 @@ export default function ExecutionsPage() {
           .join(" ")
           .toLowerCase(),
       })),
+
       ...monitoredExecutions.map((execution) => ({
         kind: "EXTERNAL" as const,
         key: execution.key,
@@ -159,8 +166,10 @@ export default function ExecutionsPage() {
         createdAt: execution.latestEvent.createdAt,
         durationMs: execution.durationMs,
         source: execution.source,
-        executionExternalId: execution.executionExternalId,
-        workflowExternalId: execution.workflowExternalId,
+        executionExternalId:
+          execution.executionExternalId,
+        workflowExternalId:
+          execution.workflowExternalId,
         nodeCount: execution.nodeCount,
         searchText: [
           execution.workflowName,
@@ -218,13 +227,21 @@ export default function ExecutionsPage() {
 
   const stats = useMemo(() => {
     const all = unifiedExecutions;
+
     const active = all.filter((execution) =>
       isAnyLiveStatus(execution.status),
     ).length;
+
     const succeeded = all.filter(
       (execution) =>
         execution.status.toUpperCase() === "SUCCEEDED",
     ).length;
+
+    const failed = all.filter(
+      (execution) =>
+        execution.status.toUpperCase() === "FAILED",
+    ).length;
+
     const completed = all.filter((execution) =>
       ["SUCCEEDED", "FAILED", "CANCELED"].includes(
         execution.status.toUpperCase(),
@@ -234,29 +251,24 @@ export default function ExecutionsPage() {
     const avgDuration =
       completed.length > 0
         ? completed.reduce(
-            (sum, execution) =>
-              sum + (execution.durationMs ?? 0),
-            0,
-          ) / completed.length
+          (sum, execution) =>
+            sum + (execution.durationMs ?? 0),
+          0,
+        ) / completed.length
         : null;
 
     return {
       total: all.length,
       active,
       succeeded,
+      failed,
       successRate:
         completed.length > 0
           ? Math.round(
-              (succeeded / completed.length) * 1000,
-            ) / 10
+            (succeeded / completed.length) * 1000,
+          ) / 10
           : null,
       avgDuration,
-      internal: all.filter(
-        (execution) => execution.kind === "INTERNAL",
-      ).length,
-      external: all.filter(
-        (execution) => execution.kind === "EXTERNAL",
-      ).length,
     };
   }, [unifiedExecutions]);
 
@@ -278,35 +290,61 @@ export default function ExecutionsPage() {
     query.isError || monitoredQuery.isError;
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-6 pb-10">
-      <div>
-        <p className="mono-eyebrow">
-          Execution
-        </p>
+    <div className="w-full px-8 pb-12 lg:px-8">
 
-        <h1 className="mt-1 text-xl font-semibold tracking-tight text-white/90">
-          Executions
-        </h1>
+      {/* ================================================================ */}
+      {/* PAGE HEADER                                                       */}
+      {/* ================================================================ */}
 
-        <p className="mt-1 text-sm text-white/44">
-          Every run in this workspace, newest first.
-        </p>
-      </div>
+      <section className="mb-6">
+        <div className="flex items-end justify-between gap-6">
 
-      {/* Operational snapshot */}
+          <div>
+            <div className="mb-3 flex items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-md border border-white/[0.08] bg-white/[0.025]">
+                <Activity className="h-3.5 w-3.5 text-white/35" />
+              </div>
+
+              <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/25">
+                Execution Control Plane
+              </p>
+            </div>
+
+            <h1 className="text-[27px] font-semibold leading-tight tracking-[-0.025em] text-white/90">
+              Executions
+            </h1>
+
+            <p className="mt-1.5 text-sm text-white/35">
+              Monitor workflow runs, execution health and
+              connected provider activity.
+            </p>
+          </div>
+
+          {/* LIVE STATE */}
+          <div className="mb-1 hidden items-center gap-2 rounded-lg border border-white/[0.07] bg-white/[0.02] px-3 py-2 md:flex">
+            <span className="h-1.5 w-1.5 rounded-full bg-white/40" />
+
+            <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-white/30">
+              Live monitoring
+            </span>
+          </div>
+        </div>
+      </section>
+
+      {/* ================================================================ */}
+      {/* OPERATIONAL SNAPSHOT                                             */}
+      {/* ================================================================ */}
+
       <section
         aria-label="Execution summary"
-        className="grid grid-cols-2 overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02] sm:grid-cols-4"
+        className="mb-6 grid grid-cols-2 overflow-hidden rounded-xl border border-white/[0.08] bg-[#0b0b0c] md:grid-cols-4"
       >
         <Metric
-          label="Total runs"
+          label="Workflow runs"
           value={stats.total.toLocaleString()}
+          detail="All executions"
         />
-        <Metric
-          label="Active"
-          value={stats.active.toLocaleString()}
-          emphasis={stats.active > 0}
-        />
+
         <Metric
           label="Success rate"
           value={
@@ -314,17 +352,75 @@ export default function ExecutionsPage() {
               ? "—"
               : `${stats.successRate}%`
           }
+          detail={
+            stats.successRate === null
+              ? "No completed runs"
+              : "Completed runs"
+          }
         />
+
         <Metric
-          label="Avg duration"
-          value={formatDuration(stats.avgDuration)}
+          label="Failed runs"
+          value={stats.failed.toLocaleString()}
+          detail={
+            stats.failed === 0
+              ? "No failures"
+              : "Requires attention"
+          }
+          tone={
+            stats.failed > 0
+              ? "warning"
+              : "neutral"
+          }
+        />
+
+        <Metric
+          label="Active"
+          value={stats.active.toLocaleString()}
+          detail={
+            stats.active > 0
+              ? "Currently running"
+              : "No active runs"
+          }
+          tone={
+            stats.active > 0
+              ? "active"
+              : "neutral"
+          }
         />
       </section>
 
-      {/* Primary source navigation */}
-      <section className="space-y-3">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex w-fit rounded-full border border-white/[0.08] bg-white/[0.025] p-0.5">
+      {/* FILTERS */}
+      <section className="mb-6">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+
+          {/* SEARCH */}
+          <label className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/25" />
+
+            <input
+              value={search}
+              onChange={(event) =>
+                setSearch(event.target.value)
+              }
+              placeholder="Search executions..."
+              className="h-10 w-full rounded-md border border-white/[0.08] bg-[#0b0b0c] pl-10 pr-10 text-xs text-white/70 outline-none transition placeholder:text-white/25 focus:border-white/[0.14]"
+            />
+
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                aria-label="Clear search"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/25 transition hover:text-white/60"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </label>
+
+          {/* SOURCE FILTER */}
+          <div className="flex shrink-0 items-center gap-1">
             {(
               [
                 ["ALL", "All"],
@@ -340,10 +436,10 @@ export default function ExecutionsPage() {
                   type="button"
                   onClick={() => setSource(value)}
                   className={cn(
-                    "rounded-full px-3.5 py-1.5 text-xs font-medium transition",
+                    "h-10 rounded-md border px-3 text-xs transition",
                     active
-                      ? "bg-white text-black shadow-sm"
-                      : "text-white/45 hover:text-white/75",
+                      ? "border-white/[0.08] bg-white text-black"
+                      : "border-white/[0.07] bg-[#0b0b0c] text-white/35 hover:bg-white/[0.035] hover:text-white/65",
                   )}
                 >
                   {label}
@@ -352,93 +448,68 @@ export default function ExecutionsPage() {
             })}
           </div>
 
-          <div className="text-xs text-white/30">
-            {source === "ALL"
-              ? "Internal + external runs"
-              : source === "INTERNAL"
-                ? "Executed by FlowOps"
-                : "Monitored from connected providers"}
+          {/* STATUS FILTER */}
+          <div className="flex shrink-0 items-center gap-1">
+            {STATUS_FILTERS.map((filter) => {
+              const active = status === filter.value;
+
+              return (
+                <button
+                  key={filter.value}
+                  type="button"
+                  onClick={() =>
+                    setStatus(filter.value)
+                  }
+                  className={cn(
+                    "h-10 rounded-md border px-3 text-xs transition",
+                    active
+                      ? "border-white/[0.08] bg-white text-black"
+                      : "border-white/[0.07] bg-[#0b0b0c] text-white/35 hover:bg-white/[0.035] hover:text-white/65",
+                  )}
+                >
+                  {filter.value === "ALL"
+                    ? "All"
+                    : filter.label}
+                </button>
+              );
+            })}
           </div>
-        </div>
 
-        {/* Search + filters */}
-        <div className="flex flex-col gap-2 md:flex-row">
-          <label className="relative min-w-0 flex-1">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/25" />
-            <input
-              value={search}
-              onChange={(event) =>
-                setSearch(event.target.value)
-              }
-              placeholder="Search workflow, execution ID, provider..."
-              className="h-9 w-full rounded-lg border border-white/[0.08] bg-white/[0.025] pl-9 pr-9 text-xs text-white/80 outline-none placeholder:text-white/25 focus:border-white/[0.16] focus:bg-white/[0.04]"
-            />
-            {search && (
-              <button
-                type="button"
-                aria-label="Clear search"
-                onClick={() => setSearch("")}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded p-1 text-white/30 hover:text-white/70"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </label>
-
-          <select
-            value={status}
-            onChange={(event) =>
-              setStatus(
-                event.target.value as
-                  | ExecutionStatus
-                  | "ALL",
-              )
-            }
-            className="h-9 rounded-lg border border-white/[0.08] bg-[#111111] px-3 text-xs text-white/60 outline-none focus:border-white/[0.16]"
-            aria-label="Filter by status"
-          >
-            {STATUS_FILTERS.map((filter) => (
-              <option
-                key={filter.value}
-                value={filter.value}
-              >
-                {filter.label}
-              </option>
-            ))}
-          </select>
-
+          {/* CLEAR */}
           {hasFilters && (
             <button
               type="button"
               onClick={clearFilters}
-              className="h-9 shrink-0 rounded-lg border border-white/[0.08] px-3 text-xs text-white/40 transition hover:bg-white/[0.04] hover:text-white/75"
+              className="h-10 shrink-0 rounded-md border border-white/[0.07] bg-[#0b0b0c] px-3 text-xs text-white/30 transition hover:bg-white/[0.035] hover:text-white/60"
             >
               Clear
             </button>
           )}
         </div>
       </section>
+      {/* ================================================================ */}
+      {/* EXECUTION LIST                                                    */}
+      {/* ================================================================ */}
 
-      {/* Main execution feed */}
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
+      <section>
+        <div className="mb-3 flex items-end justify-between">
           <div>
-            <p className="text-sm font-medium text-white/80">
+            <h2 className="text-sm font-medium text-white/70">
               Recent executions
-            </p>
-            <p className="mt-0.5 text-xs text-white/30">
+            </h2>
+
+            <p className="mt-1 text-xs text-white/25">
               {hasFilters
-                ? `${visibleExecutions.length} matching ${
-                    visibleExecutions.length === 1
-                      ? "run"
-                      : "runs"
-                  }`
+                ? `${visibleExecutions.length} matching ${visibleExecutions.length === 1
+                  ? "run"
+                  : "runs"
+                }`
                 : "Newest first"}
             </p>
           </div>
 
           {visibleExecutions.length > 0 && (
-            <span className="font-mono text-[10px] text-white/25">
+            <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-white/20">
               {visibleExecutions.length} shown
             </span>
           )}
@@ -451,7 +522,9 @@ export default function ExecutionsPage() {
             message={
               query.isError
                 ? getErrorMessage(query.error)
-                : getErrorMessage(monitoredQuery.error)
+                : getErrorMessage(
+                  monitoredQuery.error,
+                )
             }
             onRetry={() => {
               void query.refetch();
@@ -475,7 +548,7 @@ export default function ExecutionsPage() {
                 <button
                   type="button"
                   onClick={clearFilters}
-                  className="mt-4 rounded-lg border border-white/[0.09] bg-white/[0.04] px-3 py-2 text-xs text-white/60 hover:bg-white/[0.07] hover:text-white"
+                  className="mt-4 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs text-white/45 hover:bg-white/[0.06] hover:text-white/70"
                 >
                   Clear filters
                 </button>
@@ -483,24 +556,102 @@ export default function ExecutionsPage() {
             }
           />
         ) : (
-          <ul className="overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02]">
-            {visibleExecutions.map((execution, index) => (
-              <ExecutionRow
-                key={
-                  execution.kind === "INTERNAL"
-                    ? `internal:${execution.id}`
-                    : `external:${execution.key}`
-                }
-                execution={execution}
-                showDivider={index < visibleExecutions.length - 1}
-              />
-            ))}
-          </ul>
+          <div className="overflow-hidden rounded-xl border border-white/[0.08] bg-[#0b0b0c]">
+
+            {/* TABLE HEADER */}
+            <div className="hidden h-10 items-center border-b border-white/[0.055] bg-white/[0.012] px-4 font-mono text-[9px] uppercase tracking-[0.13em] text-white/20 md:flex">
+              <div className="w-[115px]">
+                Status
+              </div>
+
+              <div className="flex-1">
+                Workflow
+              </div>
+
+              <div className="w-[110px] text-right">
+                Duration
+              </div>
+
+              <div className="w-[105px] text-right">
+                Started
+              </div>
+
+              <div className="w-5" />
+            </div>
+
+            <ul>
+              {visibleExecutions.map(
+                (execution, index) => (
+                  <ExecutionRow
+                    key={
+                      execution.kind === "INTERNAL"
+                        ? `internal:${execution.id}`
+                        : `external:${execution.key}`
+                    }
+                    execution={execution}
+                    showDivider={
+                      index <
+                      visibleExecutions.length - 1
+                    }
+                  />
+                ),
+              )}
+            </ul>
+          </div>
         )}
       </section>
     </div>
   );
 }
+
+/* ========================================================================== */
+/* METRIC                                                                    */
+/* ========================================================================== */
+
+function Metric({
+  label,
+  value,
+  detail,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  tone?: "neutral" | "warning" | "active";
+}) {
+  return (
+    <div className="min-h-[116px] border-b border-white/[0.055] px-5 py-4 md:border-b-0 md:border-r md:last:border-r-0">
+      <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-white/25">
+        {label}
+      </p>
+
+      <p className="mt-2 text-[25px] font-semibold leading-none tracking-[-0.02em] text-white/85">
+        {value}
+      </p>
+
+      <div className="mt-3 flex items-center gap-2">
+        <span
+          className={cn(
+            "h-1.5 w-1.5 rounded-full",
+            tone === "warning"
+              ? "bg-amber-500/70"
+              : tone === "active"
+                ? "bg-white/45"
+                : "bg-white/15",
+          )}
+        />
+
+        <span className="text-[10px] text-white/30">
+          {detail}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/* ========================================================================== */
+/* EXECUTION ROW                                                             */
+/* ========================================================================== */
 
 function ExecutionRow({
   execution,
@@ -509,54 +660,59 @@ function ExecutionRow({
   execution: UnifiedExecution;
   showDivider: boolean;
 }) {
-  const live = isAnyLiveStatus(execution.status);
+  const live = isAnyLiveStatus(
+    execution.status,
+  );
 
   if (execution.kind === "INTERNAL") {
     return (
       <li
         className={cn(
-          showDivider && "border-b border-white/[0.06]",
+          showDivider &&
+          "border-b border-white/[0.055]",
         )}
       >
         <Link
           href={`/executions/${execution.id}`}
-          className="group flex min-w-0 items-center gap-3 px-4 py-3.5 transition hover:bg-white/[0.035] sm:gap-4"
+          className="group flex min-w-0 items-center gap-3 px-4 py-4 transition hover:bg-white/[0.018] md:gap-4"
         >
-          <StatusDot
+          <StatusIndicator
             status={execution.status}
             live={live}
           />
 
-          <Badge
-            variant={executionStatusVariant(
-              execution.status,
-            )}
-          >
-            {execution.status.toLowerCase()}
-          </Badge>
+          <div className="w-[96px] shrink-0">
+            <StatusText
+              status={execution.status}
+            />
+          </div>
 
-          <span className="min-w-0 flex-1">
-            <span className="flex min-w-0 items-center gap-2">
-              <span className="truncate text-xs font-medium text-white/90">
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="truncate text-xs font-medium text-white/75">
                 {execution.workflowName}
               </span>
 
-              <SourceBadge label="Internal" />
-            </span>
+              <span className="hidden rounded border border-white/[0.06] px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-[0.1em] text-white/20 lg:inline-flex">
+                Internal
+              </span>
+            </div>
 
-            <span className="mt-0.5 block truncate font-mono text-[10px] text-white/35">
+            <div className="mt-1 truncate font-mono text-[10px] text-white/22">
               v{execution.versionNumber} ·{" "}
               {execution.triggerType.toLowerCase()} trigger
               {execution.error
                 ? ` · ${execution.error}`
                 : ""}
-            </span>
-          </span>
+            </div>
+          </div>
 
           <ExecutionMeta
             createdAt={execution.createdAt}
             durationMs={execution.durationMs}
           />
+
+          <ArrowUpRight className="hidden h-3.5 w-3.5 shrink-0 text-white/10 transition group-hover:text-white/35 md:block" />
         </Link>
       </li>
     );
@@ -565,7 +721,8 @@ function ExecutionRow({
   return (
     <li
       className={cn(
-        showDivider && "border-b border-white/[0.06]",
+        showDivider &&
+        "border-b border-white/[0.055]",
       )}
     >
       <Link
@@ -574,117 +731,59 @@ function ExecutionRow({
         )}?workflowExternalId=${encodeURIComponent(
           execution.workflowExternalId,
         )}`}
-        className="group flex min-w-0 items-center gap-3 px-4 py-3.5 transition hover:bg-white/[0.035] sm:gap-4"
+        className="group flex min-w-0 items-center gap-3 px-4 py-4 transition hover:bg-white/[0.018] md:gap-4"
       >
-        <ExternalStatusDot
+        <ExternalStatusIndicator
           status={execution.status}
           live={live}
         />
 
-        <ExternalStatusBadge
-          status={execution.status}
-        />
+        <div className="w-[96px] shrink-0">
+          <StatusText
+            status={execution.status}
+          />
+        </div>
 
-        <span className="min-w-0 flex-1">
-          <span className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-xs font-medium text-white/90">
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-xs font-medium text-white/75">
               {execution.workflowName}
             </span>
 
-            <SourceBadge label="External" />
-            <SourceBadge
-              label={execution.source}
-              muted
-            />
-          </span>
+            <span className="hidden rounded border border-white/[0.06] px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-[0.1em] text-white/20 lg:inline-flex">
+              External
+            </span>
 
-          <span className="mt-0.5 block truncate font-mono text-[10px] text-white/35">
+            <span className="hidden truncate font-mono text-[8px] uppercase tracking-[0.1em] text-white/15 xl:inline">
+              {execution.source}
+            </span>
+          </div>
+
+          <div className="mt-1 truncate font-mono text-[10px] text-white/22">
             run {execution.executionExternalId} ·{" "}
             {execution.nodeCount}{" "}
             {execution.nodeCount === 1
               ? "node"
               : "nodes"}
-          </span>
-        </span>
+          </div>
+        </div>
 
         <ExecutionMeta
           createdAt={execution.createdAt}
           durationMs={execution.durationMs}
         />
 
-        <ExternalLink className="hidden h-3.5 w-3.5 shrink-0 text-white/15 transition group-hover:text-white/40 sm:block" />
+        <ExternalLink className="hidden h-3.5 w-3.5 shrink-0 text-white/10 transition group-hover:text-white/35 md:block" />
       </Link>
     </li>
   );
 }
 
-function Metric({
-  label,
-  value,
-  emphasis = false,
-}: {
-  label: string;
-  value: string;
-  emphasis?: boolean;
-}) {
-  return (
-    <div className="border-b border-white/[0.06] px-4 py-3.5 first:border-r sm:border-b-0 sm:border-r last:border-r-0">
-      <p className="font-mono text-[9px] uppercase tracking-wider text-white/25">
-        {label}
-      </p>
-      <p
-        className={cn(
-          "mt-1 text-base font-semibold tabular-nums",
-          emphasis ? "text-amber-300/90" : "text-white/80",
-        )}
-      >
-        {value}
-      </p>
-    </div>
-  );
-}
+/* ========================================================================== */
+/* STATUS                                                                     */
+/* ========================================================================== */
 
-function SourceBadge({
-  label,
-  muted = false,
-}: {
-  label: string;
-  muted?: boolean;
-}) {
-  return (
-    <span
-      className={cn(
-        "hidden shrink-0 rounded border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider sm:inline-flex",
-        muted
-          ? "border-white/[0.06] bg-white/[0.02] text-white/25"
-          : "border-white/[0.08] bg-white/[0.025] text-white/35",
-      )}
-    >
-      {label}
-    </span>
-  );
-}
-
-function ExecutionMeta({
-  createdAt,
-  durationMs,
-}: {
-  createdAt: string;
-  durationMs: number | null;
-}) {
-  return (
-    <span className="hidden shrink-0 text-right font-mono text-[10px] text-white/40 sm:block">
-      <span className="block">
-        {formatRelativeTime(createdAt)}
-      </span>
-      <span className="mt-0.5 block opacity-60">
-        {formatDuration(durationMs)}
-      </span>
-    </span>
-  );
-}
-
-function StatusDot({
+function StatusIndicator({
   status,
   live,
 }: {
@@ -694,15 +793,15 @@ function StatusDot({
   return (
     <span
       className={cn(
-        "h-2 w-2 shrink-0 rounded-full",
-        statusDotColor(status),
+        "h-1.5 w-1.5 shrink-0 rounded-full",
+        statusIndicatorColor(status),
         live && "animate-pulse",
       )}
     />
   );
 }
 
-function ExternalStatusDot({
+function ExternalStatusIndicator({
   status,
   live,
 }: {
@@ -712,17 +811,133 @@ function ExternalStatusDot({
   return (
     <span
       className={cn(
-        "h-2 w-2 shrink-0 rounded-full",
-        externalStatusDotColor(status),
+        "h-1.5 w-1.5 shrink-0 rounded-full",
+        externalStatusIndicatorColor(status),
         live && "animate-pulse",
       )}
     />
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* External execution grouping                                                 */
-/* -------------------------------------------------------------------------- */
+function StatusText({
+  status,
+}: {
+  status: string;
+}) {
+  return (
+    <span
+      className={cn(
+        "text-[11px] capitalize",
+        statusTextColor(status),
+      )}
+    >
+      {status.toLowerCase()}
+    </span>
+  );
+}
+
+function statusIndicatorColor(
+  status: ExecutionStatus,
+) {
+  switch (status) {
+    case "FAILED":
+      return "bg-red-400/60";
+
+    case "RUNNING":
+      return "bg-white/55";
+
+    case "WAITING":
+      return "bg-white/35";
+
+    case "QUEUED":
+      return "bg-white/30";
+
+    case "SUCCEEDED":
+      return "bg-emerald-400/55";
+
+    default:
+      return "bg-white/20";
+  }
+}
+
+function externalStatusIndicatorColor(
+  status: string,
+) {
+  switch (status.toUpperCase()) {
+    case "FAILED":
+      return "bg-red-400/60";
+
+    case "RUNNING":
+      return "bg-white/55";
+
+    case "WAITING":
+      return "bg-white/35";
+
+    case "QUEUED":
+      return "bg-white/30";
+
+    case "SUCCEEDED":
+      return "bg-emerald-400/55";
+
+    default:
+      return "bg-white/20";
+  }
+}
+
+function statusTextColor(
+  status: string,
+) {
+  switch (status.toUpperCase()) {
+    case "FAILED":
+      return "text-red-300/60";
+
+    case "RUNNING":
+      return "text-white/65";
+
+    case "WAITING":
+      return "text-white/45";
+
+    case "QUEUED":
+      return "text-white/40";
+
+    case "SUCCEEDED":
+      return "text-white/45";
+
+    case "CANCELED":
+      return "text-white/30";
+
+    default:
+      return "text-white/35";
+  }
+}
+
+/* ========================================================================== */
+/* META                                                                       */
+/* ========================================================================== */
+
+function ExecutionMeta({
+  createdAt,
+  durationMs,
+}: {
+  createdAt: string;
+  durationMs: number | null;
+}) {
+  return (
+    <div className="hidden w-[215px] shrink-0 items-center justify-end gap-6 font-mono text-[10px] md:flex">
+      <span className="w-[65px] text-right text-white/30">
+        {formatDuration(durationMs)}
+      </span>
+
+      <span className="w-[85px] text-right text-white/22">
+        {formatRelativeTime(createdAt)}
+      </span>
+    </div>
+  );
+}
+
+/* ========================================================================== */
+/* EXTERNAL EXECUTION GROUPING                                               */
+/* ========================================================================== */
 
 function groupExternalExecutions(
   events: ExecutionEvent[],
@@ -779,15 +994,16 @@ function groupExternalExecutions(
       const durationMs =
         startedAt && finishedAt
           ? Math.max(
-              0,
-              Date.parse(finishedAt) -
-                Date.parse(startedAt),
-            )
+            0,
+            Date.parse(finishedAt) -
+            Date.parse(startedAt),
+          )
           : null;
 
       return {
         key,
-        source: latestEvent.source || "external",
+        source:
+          latestEvent.source || "external",
         workflowExternalId:
           latestEvent.workflowExternalId,
         workflowName,
@@ -795,7 +1011,8 @@ function groupExternalExecutions(
           latestEvent.executionExternalId,
         status,
         events: sorted,
-        nodeCount: stepIds.size || group.length,
+        nodeCount:
+          stepIds.size || group.length,
         latestEvent,
         startedAt,
         finishedAt,
@@ -817,12 +1034,18 @@ function deriveExternalStatus(
   );
 
   if (statuses.includes("FAILED")) return "FAILED";
-  if (statuses.includes("CANCELED")) return "CANCELED";
-  if (statuses.includes("RUNNING")) return "RUNNING";
-  if (statuses.includes("WAITING")) return "WAITING";
-  if (statuses.includes("QUEUED")) return "QUEUED";
-  if (statuses.includes("SUCCEEDED")) return "SUCCEEDED";
-  if (statuses.includes("SKIPPED")) return "SKIPPED";
+  if (statuses.includes("CANCELED"))
+    return "CANCELED";
+  if (statuses.includes("RUNNING"))
+    return "RUNNING";
+  if (statuses.includes("WAITING"))
+    return "WAITING";
+  if (statuses.includes("QUEUED"))
+    return "QUEUED";
+  if (statuses.includes("SUCCEEDED"))
+    return "SUCCEEDED";
+  if (statuses.includes("SKIPPED"))
+    return "SKIPPED";
 
   return statuses[0] ?? "UNKNOWN";
 }
@@ -859,9 +1082,7 @@ function getExternalWorkflowName(
 }
 
 function earliestTimestamp(
-  values: Array<
-    string | null | undefined
-  >,
+  values: Array<string | null | undefined>,
 ): string | null {
   const valid = values.filter(
     (value): value is string =>
@@ -878,9 +1099,7 @@ function earliestTimestamp(
 }
 
 function latestTimestamp(
-  values: Array<
-    string | null | undefined
-  >,
+  values: Array<string | null | undefined>,
 ): string | null {
   const valid = values.filter(
     (value): value is string =>
@@ -896,89 +1115,9 @@ function latestTimestamp(
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Status UI                                                                   */
-/* -------------------------------------------------------------------------- */
-
-function ExternalStatusBadge({
-  status,
-}: {
-  status: string;
-}) {
-  const normalized = status.toUpperCase();
-
-  return (
-    <span
-      className={cn(
-        "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide",
-        externalStatusClasses(normalized),
-      )}
-    >
-      {normalized.toLowerCase()}
-    </span>
-  );
-}
-
-function externalStatusClasses(
-  status: string,
-): string {
-  switch (status) {
-    case "SUCCEEDED":
-      return "border-emerald-500/20 bg-emerald-500/10 text-emerald-300";
-    case "FAILED":
-      return "border-red-500/20 bg-red-500/10 text-red-300";
-    case "RUNNING":
-      return "border-amber-500/20 bg-amber-500/10 text-amber-300";
-    case "WAITING":
-      return "border-blue-500/20 bg-blue-500/10 text-blue-300";
-    case "CANCELED":
-      return "border-white/10 bg-white/[0.04] text-white/50";
-    case "QUEUED":
-      return "border-purple-500/20 bg-purple-500/10 text-purple-300";
-    case "SKIPPED":
-      return "border-white/10 bg-white/[0.04] text-white/40";
-    default:
-      return "border-white/10 bg-white/[0.04] text-white/45";
-  }
-}
-
-function externalStatusDotColor(
-  status: string,
-): string {
-  switch (status.toUpperCase()) {
-    case "SUCCEEDED":
-      return "bg-emerald-500";
-    case "FAILED":
-      return "bg-red-500";
-    case "RUNNING":
-      return "bg-amber-500";
-    case "WAITING":
-      return "bg-blue-500";
-    case "QUEUED":
-      return "bg-purple-500";
-    default:
-      return "bg-white/20";
-  }
-}
-
-function statusDotColor(
-  status: ExecutionStatus,
-): string {
-  switch (status) {
-    case "SUCCEEDED":
-      return "bg-emerald-500";
-    case "FAILED":
-      return "bg-red-500";
-    case "RUNNING":
-      return "bg-amber-500";
-    case "WAITING":
-      return "bg-blue-500";
-    case "QUEUED":
-      return "bg-purple-500";
-    default:
-      return "bg-white/20";
-  }
-}
+/* ========================================================================== */
+/* LIVE STATE                                                                 */
+/* ========================================================================== */
 
 function isExternalLiveStatus(
   status: string,
@@ -998,35 +1137,42 @@ function isAnyLiveStatus(
   return isExternalLiveStatus(status);
 }
 
-/* -------------------------------------------------------------------------- */
-/* Shared UI                                                                   */
-/* -------------------------------------------------------------------------- */
+/* ========================================================================== */
+/* LOADING                                                                    */
+/* ========================================================================== */
 
 function ExecutionListSkeleton() {
   return (
-    <div className="overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02]">
-      {Array.from({ length: 6 }).map((_, index) => (
-        <div
-          key={index}
-          className="flex items-center gap-3 border-b border-white/[0.06] px-4 py-3.5 last:border-0"
-        >
-          <Skeleton className="h-2 w-2 rounded-full" />
-          <Skeleton className="h-5 w-16 rounded-full" />
+    <div className="overflow-hidden rounded-xl border border-white/[0.08] bg-[#0b0b0c]">
+      {Array.from({ length: 6 }).map(
+        (_, index) => (
+          <div
+            key={index}
+            className="flex items-center gap-4 border-b border-white/[0.055] px-4 py-4 last:border-0"
+          >
+            <Skeleton className="h-1.5 w-1.5 rounded-full" />
 
-          <span className="flex min-w-0 flex-1 flex-col gap-1.5">
-            <Skeleton className="h-3 w-40 max-w-full" />
-            <Skeleton className="h-2.5 w-56 max-w-full" />
-          </span>
+            <Skeleton className="h-3 w-16 rounded" />
 
-          <span className="hidden flex-col items-end gap-1 sm:flex">
-            <Skeleton className="h-2.5 w-16" />
-            <Skeleton className="h-2.5 w-12" />
-          </span>
-        </div>
-      ))}
+            <span className="flex min-w-0 flex-1 flex-col gap-2">
+              <Skeleton className="h-3 w-40 max-w-full" />
+              <Skeleton className="h-2.5 w-56 max-w-full" />
+            </span>
+
+            <span className="hidden items-center gap-5 md:flex">
+              <Skeleton className="h-2.5 w-12" />
+              <Skeleton className="h-2.5 w-16" />
+            </span>
+          </div>
+        ),
+      )}
     </div>
   );
 }
+
+/* ========================================================================== */
+/* ERROR                                                                      */
+/* ========================================================================== */
 
 function ErrorState({
   message,
@@ -1036,23 +1182,29 @@ function ErrorState({
   onRetry: () => void;
 }) {
   return (
-    <div className="rounded-xl border border-red-500/10 bg-red-500/[0.03] px-4 py-5">
-      <p className="text-sm text-red-300/80">
+    <div className="rounded-xl border border-white/[0.08] bg-[#0b0b0c] px-5 py-6">
+      <p className="text-sm text-white/55">
         Unable to load executions.
       </p>
-      <p className="mt-1 text-xs text-white/35">
+
+      <p className="mt-1 text-xs text-white/25">
         {message}
       </p>
+
       <button
         type="button"
         onClick={onRetry}
-        className="mt-2 text-xs text-white/50 underline underline-offset-2 hover:text-white/80"
+        className="mt-3 text-xs text-white/40 underline underline-offset-2 hover:text-white/70"
       >
         Retry
       </button>
     </div>
   );
 }
+
+/* ========================================================================== */
+/* EMPTY                                                                      */
+/* ========================================================================== */
 
 function EmptyState({
   title,
@@ -1064,14 +1216,16 @@ function EmptyState({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-white/[0.08] bg-white/[0.015] px-6 py-12 text-center">
-      <Activity className="h-5 w-5 text-white/20" />
+    <div className="flex min-h-[300px] flex-col items-center justify-center rounded-xl border border-dashed border-white/[0.08] bg-[#0b0b0c] px-6 py-12 text-center">
+      <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.07] bg-white/[0.02]">
+        <Activity className="h-4 w-4 text-white/20" />
+      </div>
 
-      <p className="mt-3 text-sm font-medium text-white/55">
+      <p className="mt-4 text-sm font-medium text-white/55">
         {title}
       </p>
 
-      <p className="mt-1 max-w-md text-xs leading-5 text-white/30">
+      <p className="mt-1 max-w-md text-xs leading-5 text-white/25">
         {description}
       </p>
 

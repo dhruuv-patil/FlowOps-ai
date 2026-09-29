@@ -12,8 +12,8 @@ import { z } from "zod";
  * declaration order and the backend measures length on the normalized value.
  */
 
-export const EMAIL_REGEX = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
-export const PASSWORD_REGEX = /^(?=.*[A-Za-z])(?=.*\d).{8,72}$/;
+const EMAIL_REGEX = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+const PASSWORD_REGEX = /^(?=.*[A-Za-z])(?=.*\d).{8,72}$/;
 
 /**
  * BCrypt silently ignores input past 72 bytes, so two different long passwords
@@ -67,21 +67,6 @@ export const loginSchema = z.object({
     .min(1, "Password is required.")
     .max(72, "Password must be at most 72 characters."),
 });
-
-export const createOrganizationSchema = z.object({ organizationName });
-
-export const renameOrganizationSchema = z.object({
-  name: z
-    .string()
-    .trim()
-    .min(2, "Organization name must be between 2 and 80 characters.")
-    .max(80, "Organization name must be between 2 and 80 characters."),
-});
-
-export type RegisterInput = z.infer<typeof registerSchema>;
-export type LoginInput = z.infer<typeof loginSchema>;
-export type CreateOrganizationInput = z.infer<typeof createOrganizationSchema>;
-export type RenameOrganizationInput = z.infer<typeof renameOrganizationSchema>;
 
 /**
  * Flatten a Zod failure into `{ fieldName: firstMessage }`, matching the shape

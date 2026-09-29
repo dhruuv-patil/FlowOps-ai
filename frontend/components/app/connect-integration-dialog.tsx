@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { ProviderIcon } from "@/components/integrations/provider-icon";
 
 import {
   connectIntegration,
@@ -311,17 +312,31 @@ export function ConnectIntegrationDialog({
       open={open}
       onOpenChange={handleOpenChange}
     >
-      <DialogContent>
+      <DialogContent className="border-white/[0.08] !bg-[#0a0a0a] max-w-md">
         <form onSubmit={onSubmit}>
-          <DialogHeader>
-            <DialogTitle>{title}</DialogTitle>
-
-            <DialogDescription>
-              {description}
-            </DialogDescription>
+          <DialogHeader className="space-y-3">
+            <div className="flex items-center gap-3">
+              {selectedProvider && (
+  <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+    {selectedProvider.icon ? (
+      <ProviderIcon icon={selectedProvider.icon} className="size-5" />
+    ) : (
+      <span className="text-sm font-semibold">
+        {selectedProvider.name?.charAt(0) ?? "?"}
+      </span>
+    )}
+  </div>
+)}
+              <div className="space-y-0.5">
+                <DialogTitle className="text-white/90">{title}</DialogTitle>
+                <DialogDescription className="text-white/44">
+                  {description}
+                </DialogDescription>
+              </div>
+            </div>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
+          <div className="space-y-4 py-6">
             {/*
              * =========================
              * SLACK
@@ -329,7 +344,7 @@ export function ConnectIntegrationDialog({
              */}
             {isSlack ? (
               <div className="space-y-2">
-                <Label htmlFor="slack-webhook">
+                <Label htmlFor="slack-webhook" className="text-white/90">
                   Incoming webhook URL
                 </Label>
 
@@ -341,7 +356,8 @@ export function ConnectIntegrationDialog({
                   onChange={(e) =>
                     setWebhookUrl(e.target.value)
                   }
-                  placeholder="https://hooks.slack.com/services/T…/B…/…"
+                  placeholder="https://hooks.slack.com/services/..."
+                  className="bg-[#0a0a0a] border-white/[0.08]"
                   aria-invalid={!!errors.webhookUrl}
                 />
 
@@ -350,17 +366,17 @@ export function ConnectIntegrationDialog({
                     {errors.webhookUrl}
                   </p>
                 ) : (
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-white/44">
                     Create one in Slack under{" "}
                     <a
                       href={SLACK_WEBHOOK_DOCS}
                       target="_blank"
                       rel="noreferrer"
-                      className="underline underline-offset-2 hover:text-foreground"
+                      className="underline underline-offset-2 hover:text-white/90"
                     >
                       Incoming Webhooks
                     </a>
-                    . Stored encrypted; never shown again.
+                    .
                   </p>
                 )}
               </div>
@@ -393,6 +409,7 @@ export function ConnectIntegrationDialog({
                     >
                       <Label
                         htmlFor={`provider-${field.key}`}
+                        className="text-white/90"
                       >
                         {field.label}
                       </Label>
@@ -416,6 +433,7 @@ export function ConnectIntegrationDialog({
                         placeholder={
                           field.placeholder
                         }
+                        className="bg-[#0a0a0a] border-white/[0.08]"
                         autoComplete="off"
                         aria-invalid={
                           !!errors[field.key]
@@ -427,7 +445,7 @@ export function ConnectIntegrationDialog({
                           {errors[field.key]}
                         </p>
                       ) : field.help ? (
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-xs text-white/44">
                           {field.help}
                         </p>
                       ) : null}
@@ -445,6 +463,7 @@ export function ConnectIntegrationDialog({
               onClick={() =>
                 handleOpenChange(false)
               }
+              className="text-white/60 hover:text-white"
               disabled={isSubmitting}
             >
               Cancel
@@ -452,6 +471,7 @@ export function ConnectIntegrationDialog({
 
             <Button
               type="submit"
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
               disabled={
                 isSubmitting ||
                 loadingProvider ||

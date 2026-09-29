@@ -69,13 +69,13 @@
   --tracking-display-xl: -0.6px;
 
   /* Radius */
-  --radius-tags: 6px;
-  --radius-cards: 12px;
-  --radius-xl: 20px;
-  --radius-icons: 8px;
-  --radius-inputs: 8px;
-  --radius-buttons: 10px;
-  --radius-large-buttons: 12px;
+  --radius-tags: 4px;
+  --radius-cards: 8px;
+  --radius-xl: 12px;
+  --radius-icons: 6px;
+  --radius-inputs: 6px;
+  --radius-buttons: 6px;
+  --radius-large-buttons: 8px;
 
   /* Surfaces */
   --surface-true-black: #000000;
@@ -120,7 +120,7 @@
     --input: 0 0% 10%;
     --ring: 0 0% 80%;
 
-    --radius: 0.5rem;
+    --radius: 0.375rem;
   }
 }
 

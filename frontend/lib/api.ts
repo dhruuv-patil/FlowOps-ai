@@ -83,6 +83,7 @@ import type {
   ResolveResponse,
   FalsePositiveRequest,
   FalsePositiveResponse,
+  RecoveryStatus,
   WorkflowHealth,
   WorkflowHealthResponse,
   WorkflowMetrics,
@@ -430,16 +431,6 @@ export async function resetPassword(payload: { token: string; newPassword: strin
   await api.post("/api/auth/reset-password", payload);
 }
 
-/** `GET /api/auth/me` → fresh identity + tenant context from the database. */
-export async function fetchMe(): Promise<SessionResponse> {
-  const { data } =
-    await api.get<SessionResponse>(
-      "/api/auth/me",
-    );
-
-  return data;
-}
-
 /** `GET /api/organizations` → every org the authenticated user belongs to. */
 export async function fetchOrganizations(): Promise<OrganizationsResponse> {
   const { data } =
@@ -468,19 +459,6 @@ export async function renameCurrentOrganization(
     await api.patch<CurrentOrganizationResponse>(
       "/api/organizations/current",
       { name },
-    );
-
-  return data;
-}
-
-/** `POST /api/organizations` → 201. Does **not** switch the caller into it. */
-export async function createOrganization(
-  organizationName: string,
-): Promise<CreateOrganizationResponse> {
-  const { data } =
-    await api.post<CreateOrganizationResponse>(
-      "/api/organizations",
-      { organizationName },
     );
 
   return data;
@@ -1404,28 +1382,6 @@ export async function markAnomalyFalsePositive(
   return data;
 }
 
-export async function fetchWorkflowHealth(
-  workflowId: string,
-): Promise<WorkflowHealthResponse> {
-  const { data } =
-    await api.get<WorkflowHealthResponse>(
-      `/api/reliability/workflows/${workflowId}/health`,
-    );
-
-  return data;
-}
-
-export async function fetchWorkflowMetrics(
-  workflowId: string,
-): Promise<WorkflowMetricsResponse> {
-  const { data } =
-    await api.get<WorkflowMetricsResponse>(
-      `/api/reliability/workflows/${workflowId}/metrics`,
-    );
-
-  return data;
-}
-
 export async function investigateAnomaly(
   id: string,
 ): Promise<InvestigateResponse> {
@@ -1436,4 +1392,28 @@ export async function investigateAnomaly(
     );
 
   return data;
+}
+
+export async function verifyRecovery(
+  id: string,
+  requiredCount?: number,
+): Promise<AnomalyDetail> {
+  const { data } =
+    await api.post<{ anomaly: AnomalyDetail }>(
+      `/api/reliability/anomalies/${id}/verify-recovery`,
+      requiredCount ? { requiredCount } : {},
+    );
+
+  return data.anomaly;
+}
+
+export async function fetchRecoveryStatus(
+  id: string,
+): Promise<RecoveryStatus> {
+  const { data } =
+    await api.get<{ snapshot: RecoveryStatus }>(
+      `/api/reliability/anomalies/${id}/recovery`,
+    );
+
+  return data.snapshot;
 }

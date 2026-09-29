@@ -86,6 +86,8 @@ const STATUS_COLORS: Record<AnomalyStatus, string> = {
   OPEN: "bg-blue-500/10 text-blue-400 border-blue-500/20",
   ACKNOWLEDGED:
     "bg-purple-500/10 text-purple-400 border-purple-500/20",
+  VERIFYING_RECOVERY:
+    "bg-amber-500/10 text-amber-400 border-amber-500/20",
   RESOLVED:
     "bg-green-500/10 text-green-400 border-green-500/20",
   FALSE_POSITIVE:
@@ -292,6 +294,10 @@ export default function AnomaliesPage() {
 
               <SelectItem value="ACKNOWLEDGED">
                 Acknowledged
+              </SelectItem>
+
+              <SelectItem value="VERIFYING_RECOVERY">
+                Verifying Recovery
               </SelectItem>
 
               <SelectItem value="RESOLVED">

@@ -8,6 +8,7 @@ import {
   Bot,
   ChevronLeft,
   FileText,
+  Home,
   LayoutDashboard,
   LogOut,
   PanelsTopLeft,
@@ -55,6 +56,12 @@ const NAV: NavGroup[] = [
   {
     label: "Workspace",
     items: [
+      {
+        label: "Home",
+        href: "/home",
+        icon: Home,
+        ready: true,
+      },
       {
         label: "Dashboard",
         href: "/dashboard",

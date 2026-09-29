@@ -14,7 +14,7 @@ import {
   Layers3,
   XCircle,
 } from "lucide-react";
-import type { ComponentType } from "react";
+import { Suspense, type ComponentType } from "react";
 
 import { fetchExecutionEvents, getErrorMessage } from "@/lib/api";
 
@@ -29,7 +29,7 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 
-export default function ExternalExecutionPage() {
+function ExternalExecutionPageContent() {
   const params = useParams();
   const searchParams = useSearchParams();
 
@@ -379,6 +379,14 @@ export default function ExternalExecutionPage() {
         </>
       )}
     </div>
+  );
+}
+
+export default function ExternalExecutionPage() {
+  return (
+    <Suspense fallback={null}>
+      <ExternalExecutionPageContent />
+    </Suspense>
   );
 }
 

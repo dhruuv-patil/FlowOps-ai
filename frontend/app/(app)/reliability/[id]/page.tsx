@@ -3,16 +3,21 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
+  Activity,
   AlertTriangle,
   ArrowLeft,
   Brain,
+  CheckCircle2,
   ChevronDown,
   Clock,
   Code2,
   FileText,
   Loader2,
+  Play,
+  RefreshCw,
   Shield,
   Target,
+  XCircle,
   Zap,
 } from "lucide-react";
 import { format } from "date-fns";
@@ -24,6 +29,8 @@ import {
   resolveAnomaly,
   markAnomalyFalsePositive,
   investigateAnomaly,
+  verifyRecovery,
+  fetchRecoveryStatus,
 } from "@/lib/api";
 
 import type {
@@ -32,6 +39,7 @@ import type {
   AnomalyStatus,
   AnomalyType,
   AIInvestigationResult,
+  RecoveryStatus,
 } from "@/types";
 
 import { Button } from "@/components/ui/button";
@@ -94,6 +102,7 @@ const TYPE_ICONS: Record<
 const STATUS_COLORS: Record<AnomalyStatus, string> = {
   OPEN: "bg-blue-500/10 text-blue-400 border-blue-500/20",
   ACKNOWLEDGED: "bg-purple-500/10 text-purple-400 border-purple-500/20",
+  VERIFYING_RECOVERY: "bg-amber-500/10 text-amber-400 border-amber-500/20",
   RESOLVED: "bg-green-500/10 text-green-400 border-green-500/20",
   FALSE_POSITIVE: "bg-gray-500/10 text-gray-400 border-gray-500/20",
 };
@@ -151,9 +160,12 @@ export default function AnomalyDetailPage({
   const [anomaly, setAnomaly] = useState<AnomalyDetail | null>(null);
   const [investigation, setInvestigation] =
     useState<AIInvestigationResult | null>(null);
+  const [recoveryStatus, setRecoveryStatus] =
+    useState<RecoveryStatus | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [investigating, setInvestigating] = useState(false);
+  const [verifyingPending, setVerifyingPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState("overview");
@@ -165,6 +177,36 @@ export default function AnomalyDetailPage({
   useEffect(() => {
     loadAnomaly();
   }, []);
+
+  // Poll for recovery status updates while verification is active
+  useEffect(() => {
+    if (!anomaly || anomaly.status !== "VERIFYING_RECOVERY") return;
+
+    loadRecoveryStatus();
+    const interval = setInterval(async () => {
+      await loadRecoveryStatus();
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [anomaly?.status, anomaly?.id]);
+
+  async function loadRecoveryStatus() {
+    if (!anomaly) return;
+    try {
+      const snapshot = await fetchRecoveryStatus(anomaly.id);
+      setRecoveryStatus(snapshot);
+      // If status transitioned to RESOLVED automatically, reload full anomaly
+      if (snapshot.anomalyStatus !== anomaly.status) {
+        const updated = await fetchAnomaly(anomaly.id);
+        setAnomaly(updated);
+        if (updated.status === "RESOLVED") {
+          toast.success("Recovery verified! Anomaly automatically resolved.");
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load recovery status", err);
+    }
+  }
 
   async function loadAnomaly() {
     setLoading(true);
@@ -182,11 +224,38 @@ export default function AnomalyDetailPage({
           data.evidence.investigation as AIInvestigationResult
         );
       }
+
+      // Load recovery status if verifying or resolved via recovery
+      if (data.status === "VERIFYING_RECOVERY" || data.status === "RESOLVED") {
+        try {
+          const snapshot = await fetchRecoveryStatus(id);
+          setRecoveryStatus(snapshot);
+        } catch (rErr) {
+          console.error("Failed to fetch initial recovery status", rErr);
+        }
+      }
     } catch (err) {
       setError("Failed to load anomaly");
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleStartVerification(requiredCount?: number) {
+    if (!anomaly) return;
+
+    setVerifyingPending(true);
+    try {
+      const updated = await verifyRecovery(anomaly.id, requiredCount ?? 5);
+      setAnomaly(updated);
+      await loadRecoveryStatus();
+      toast.success("Recovery verification started. Monitoring subsequent executions.");
+    } catch (err) {
+      console.error(err);
+      toast.error("Could not start recovery verification.");
+    } finally {
+      setVerifyingPending(false);
     }
   }
 
@@ -308,14 +377,20 @@ export default function AnomalyDetailPage({
 
               <DropdownMenuSeparator />
 
-              {anomaly.status === "OPEN" && (
+              {(anomaly.status === "OPEN" || anomaly.status === "ACKNOWLEDGED") && (
                 <>
-                  <DropdownMenuItem onClick={handleAcknowledge}>
-                    Acknowledge
+                  <DropdownMenuItem onClick={() => handleStartVerification()}>
+                    Verify Recovery
                   </DropdownMenuItem>
 
+                  {anomaly.status === "OPEN" && (
+                    <DropdownMenuItem onClick={handleAcknowledge}>
+                      Acknowledge
+                    </DropdownMenuItem>
+                  )}
+
                   <DropdownMenuItem onClick={handleResolve}>
-                    Resolve
+                    Force Resolve
                   </DropdownMenuItem>
 
                   <DropdownMenuItem
@@ -326,10 +401,22 @@ export default function AnomalyDetailPage({
                 </>
               )}
 
-              {anomaly.status === "ACKNOWLEDGED" && (
-                <DropdownMenuItem onClick={handleResolve}>
-                  Resolve
-                </DropdownMenuItem>
+              {anomaly.status === "VERIFYING_RECOVERY" && (
+                <>
+                  <DropdownMenuItem onClick={() => handleStartVerification()}>
+                    Re-verify Recovery
+                  </DropdownMenuItem>
+
+                  <DropdownMenuItem onClick={handleResolve}>
+                    Force Resolve
+                  </DropdownMenuItem>
+
+                  <DropdownMenuItem
+                    onClick={() => setFalsePositiveOpen(true)}
+                  >
+                    Mark false positive
+                  </DropdownMenuItem>
+                </>
               )}
             </DropdownMenuContent>
           </DropdownMenu>
@@ -439,6 +526,139 @@ export default function AnomalyDetailPage({
               value="overview"
               className="space-y-6 pt-4"
             >
+              {/* RECOVERY VERIFICATION PANEL */}
+              {(anomaly.status === "VERIFYING_RECOVERY" || recoveryStatus) && (
+                <Card className="!bg-[#0a0a0a] border-amber-500/20 bg-amber-500/5">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="flex items-center gap-2 text-sm font-medium text-white/90">
+                        <Activity className="size-4 text-amber-400 animate-pulse" />
+                        RECOVERY VERIFICATION
+                      </CardTitle>
+
+                      {recoveryStatus?.anomalyStatus === "RESOLVED" ? (
+                        <Badge variant="secondary" className="bg-green-500/10 text-green-400 border-green-500/20 gap-1">
+                          <CheckCircle2 className="size-3" />
+                          RECOVERY VERIFIED
+                        </Badge>
+                      ) : recoveryStatus && recoveryStatus.observedCount > 0 && recoveryStatus.healthyCount === 0 ? (
+                        <Badge variant="secondary" className="bg-red-500/10 text-red-400 border-red-500/20 gap-1">
+                          <XCircle className="size-3" />
+                          RECOVERY NOT VERIFIED
+                        </Badge>
+                      ) : (
+                        <Badge variant="secondary" className="bg-amber-500/10 text-amber-400 border-amber-500/20 gap-1">
+                          <RefreshCw className="size-3 animate-spin" />
+                          {recoveryStatus && recoveryStatus.observedCount > 0 ? "Verifying" : "Waiting for recovery data"}
+                        </Badge>
+                      )}
+                    </div>
+                    <CardDescription className="text-white/44">
+                      {recoveryStatus?.anomalyStatus === "RESOLVED"
+                        ? "The workflow has returned to normal. 5 healthy executions observed."
+                        : recoveryStatus && recoveryStatus.observedCount > 0 && recoveryStatus.healthyCount === 0
+                        ? "Metric remains outside expected baseline range. Resolution blocked until recovery is verified."
+                        : "FlowOps is observing subsequent executions to verify the metric returns to normal baseline."}
+                    </CardDescription>
+                  </CardHeader>
+
+                  <CardContent className="space-y-4">
+                    {/* Execution progress indicators */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-xs text-white/70">
+                        <span>Healthy Execution Progress</span>
+                        <span className="font-mono font-medium">
+                          {recoveryStatus ? recoveryStatus.healthyCount : anomaly.recoveryHealthyCount || 0} /{" "}
+                          {recoveryStatus ? recoveryStatus.requiredCount : anomaly.recoveryRequiredCount || 5} healthy executions
+                        </span>
+                      </div>
+
+                      {/* Dot indicators */}
+                      <div className="flex items-center gap-2 pt-1">
+                        {Array.from({ length: recoveryStatus ? recoveryStatus.requiredCount : 5 }).map((_, i) => {
+                          const healthyCount = recoveryStatus ? recoveryStatus.healthyCount : 0;
+                          const isDone = i < healthyCount;
+                          const isFailed = recoveryStatus && recoveryStatus.observedCount > 0 && healthyCount === 0;
+
+                          return (
+                            <div
+                              key={i}
+                              className={`h-2 flex-1 rounded-full transition-all ${
+                                isDone
+                                  ? "bg-green-500 shadow-sm shadow-green-500/50"
+                                  : isFailed
+                                  ? "bg-red-500/30 border border-red-500/40"
+                                  : "bg-white/10"
+                              }`}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Baseline vs Current metrics */}
+                    <div className="grid gap-3 sm:grid-cols-3 pt-2 text-xs border-t border-white/[0.06]">
+                      <div className="space-y-1">
+                        <span className="text-white/44">Current Metric</span>
+                        <p className="font-mono font-medium text-destructive">
+                          {anomaly.actualValue}
+                        </p>
+                      </div>
+
+                      <div className="space-y-1">
+                        <span className="text-white/44">Learned Baseline</span>
+                        <p className="font-mono font-medium text-white/90">
+                          {recoveryStatus?.baseline?.baseline || anomaly.expectedValue}
+                        </p>
+                      </div>
+
+                      <div className="space-y-1">
+                        <span className="text-white/44">Normal Threshold</span>
+                        <p className="font-mono font-medium text-white/90">
+                          {recoveryStatus?.baseline?.threshold || "Within range"}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Action buttons */}
+                    <div className="flex flex-wrap items-center gap-3 pt-2">
+                      {anomaly.status === "VERIFYING_RECOVERY" && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleStartVerification()}
+                            disabled={verifyingPending}
+                            className="gap-2"
+                          >
+                            <RefreshCw className={`size-3.5 ${verifyingPending ? "animate-spin" : ""}`} />
+                            Re-verify Recovery
+                          </Button>
+
+                          <Button
+                            size="sm"
+                            variant="default"
+                            onClick={handleResolve}
+                            className="gap-2"
+                          >
+                            <CheckCircle2 className="size-3.5" />
+                            Confirm Resolution
+                          </Button>
+                        </>
+                      )}
+
+                      {anomaly.status === "RESOLVED" && (
+                        <div className="flex items-center gap-2 text-xs text-green-400">
+                          <CheckCircle2 className="size-4" />
+                          Verified by FlowOps Reliability Engine
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* What Happened & Impact */}
               <div className="grid gap-4 sm:grid-cols-2">
                 <Card className="!bg-[#0a0a0a] border-white/[0.08]">
                   <CardHeader>
@@ -546,6 +766,24 @@ export default function AnomalyDetailPage({
                         )}
                       </span>
                     </div>
+
+                    {recoveryStatus?.startedAt && (
+                      <div className="flex items-center gap-3 text-sm">
+                        <div className="flex items-center gap-2">
+                          <div className="size-2 rounded-full bg-amber-500 animate-pulse" />
+                          <span className="text-white/70">
+                            Recovery verification started
+                          </span>
+                        </div>
+
+                        <span className="font-mono text-white/44">
+                          {format(
+                            new Date(recoveryStatus.startedAt),
+                            "MMM d, yyyy HH:mm:ss"
+                          )}
+                        </span>
+                      </div>
+                    )}
 
                     <div className="flex items-center gap-3 text-sm">
                       <div className="flex items-center gap-2">
@@ -875,44 +1113,67 @@ export default function AnomalyDetailPage({
             </CardHeader>
 
             <CardContent className="space-y-2">
-              {anomaly.status === "OPEN" && (
+              {(anomaly.status === "OPEN" || anomaly.status === "ACKNOWLEDGED") && (
                 <>
                   <Button
-                    variant="outline"
-                    className="w-full justify-start"
-                    onClick={handleAcknowledge}
+                    variant="default"
+                    className="w-full justify-start gap-2 bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border-amber-500/30"
+                    onClick={() => handleStartVerification()}
+                    disabled={verifyingPending}
                   >
-                    Acknowledge
+                    <Activity className={`size-4 ${verifyingPending ? "animate-spin" : ""}`} />
+                    Verify Recovery
                   </Button>
 
-                  <Button
-                    variant="default"
-                    className="w-full justify-start"
-                    onClick={handleResolve}
-                  >
-                    Resolve
-                  </Button>
+                  {anomaly.status === "OPEN" && (
+                    <Button
+                      variant="outline"
+                      className="w-full justify-start"
+                      onClick={handleAcknowledge}
+                    >
+                      Acknowledge
+                    </Button>
+                  )}
 
                   <Button
                     variant="destructive"
                     className="w-full justify-start"
-                    onClick={() =>
-                      setFalsePositiveOpen(true)
-                    }
+                    onClick={() => setFalsePositiveOpen(true)}
                   >
                     Mark False Positive
                   </Button>
                 </>
               )}
 
-              {anomaly.status === "ACKNOWLEDGED" && (
-                <Button
-                  variant="default"
-                  className="w-full justify-start"
-                  onClick={handleResolve}
-                >
-                  Resolve
-                </Button>
+              {anomaly.status === "VERIFYING_RECOVERY" && (
+                <>
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start gap-2"
+                    onClick={() => handleStartVerification()}
+                    disabled={verifyingPending}
+                  >
+                    <RefreshCw className={`size-4 ${verifyingPending ? "animate-spin" : ""}`} />
+                    Re-verify Recovery
+                  </Button>
+
+                  <Button
+                    variant="default"
+                    className="w-full justify-start gap-2"
+                    onClick={handleResolve}
+                  >
+                    <CheckCircle2 className="size-4" />
+                    Force Resolve
+                  </Button>
+
+                  <Button
+                    variant="destructive"
+                    className="w-full justify-start"
+                    onClick={() => setFalsePositiveOpen(true)}
+                  >
+                    Mark False Positive
+                  </Button>
+                </>
               )}
 
               <Button

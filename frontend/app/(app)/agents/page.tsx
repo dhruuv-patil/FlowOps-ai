@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Bot, Plus, Search } from "lucide-react";
@@ -18,7 +18,7 @@ import { CreateAgentDialog } from "@/components/app/create-agent-dialog";
  * editor + test console. Search is client-side (the list endpoint returns the
  * full org set, ordered by most recently updated).
  */
-export default function AgentsPage() {
+function AgentsPageContent() {
   const [search, setSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
 
@@ -129,5 +129,13 @@ export default function AgentsPage() {
 
       <CreateAgentDialog open={createOpen} onOpenChange={setCreateOpen} />
     </div>
+  );
+}
+
+export default function AgentsPage() {
+  return (
+    <Suspense fallback={null}>
+      <AgentsPageContent />
+    </Suspense>
   );
 }

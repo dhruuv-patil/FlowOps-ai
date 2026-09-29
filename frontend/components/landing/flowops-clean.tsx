@@ -17,8 +17,8 @@ const tabs = [
 ]
 const faqs = ['What is FlowOps?', 'Does FlowOps replace my workflow tools?', 'How quickly can I get started?', 'Can I export events to our existing stack?']
 const faqAnswers = [
-  'FlowOps is an end-to-end workflow platform for building, running, monitoring, and troubleshooting automated workflows.',
-  'No — FlowOps can build workflows itself, while execution data from existing systems can be connected through webhooks and HTTP APIs.',
+  'FlowOps is a production reliability platform for automated workflows. It helps teams build, run, monitor, detect anomalies, investigate failures, and take action from one place.',
+  'No — FlowOps can build workflows itself, and it can also connect to workflows you already run through supported integrations, webhooks, and HTTP APIs.',
   'Start by building a workflow in FlowOps, or send execution events from an existing system through a webhook or HTTP API.',
   'Yes. FlowOps supports webhooks and HTTP APIs, with Slack available for operational notifications.',
 ]
@@ -31,18 +31,10 @@ const integrationGroups = [
   { title: 'Developer tools', icon: GitBranch, items: ['GitHub', 'Linear', 'Vercel'] },
 ]
 const integrationCards = [
-  { title: 'Workflow tools', items: [['n8n', 'n8n'], ['Zapier', 'zapier'], ['Make', 'make']] },
-  { title: 'Orchestration', items: [['Temporal', 'temporal'], ['Apache Airflow', 'apacheairflow'], ['Dagster', 'dagster']] },
-  { title: 'Cloud', items: [['AWS', 'amazonwebservices'], ['GCP', 'googlecloud'], ['Azure', 'microsoftazure']] },
-  { title: 'Observability', items: [['Datadog', 'datadog'], ['Grafana', 'grafana'], ['OpenTelemetry', 'opentelemetry']] },
-  { title: 'Alerting', items: [['Slack', 'slack'], ['PagerDuty', 'pagerduty'], ['Opsgenie', 'opsgenie']] },
-  { title: 'Secrets', items: [['Vault', 'vault'], ['1Password', '1password'], ['Doppler', 'doppler']] },
-  { title: 'Project mgmt', items: [['Linear', 'linear'], ['Jira', 'jira'], ['Notion', 'notion']] },
-  { title: 'Security', items: [['Sentry', 'sentry'], ['Okta', 'okta'], ['SonarCloud', 'sonarcloud']] },
-  { title: 'Networking', items: [['Cloudflare', 'cloudflare'], ['Tailscale', 'tailscale'], ['Istio', 'istio']] },
-  { title: 'Databases', items: [['Postgres', 'postgresql'], ['Supabase', 'supabase'], ['Redis', 'redis']] },
-  { title: 'CI / CD', items: [['GitHub', 'github'], ['GitLab', 'gitlab'], ['Vercel', 'vercel']] },
-  { title: 'IaC & GitOps', items: [['Terraform', 'terraform'], ['Pulumi', 'pulumi'], ['Argo CD', 'argo']] },
+  { title: 'Workflow platforms', items: [['n8n', 'n8n', '#EA4B71'], ['Zapier', 'zapier', '#FF4A00'], ['Make', 'make', '#6D00CC']] },
+  { title: 'Developer workflows', items: [['GitHub Actions', 'githubactions', '#2088FF'], ['Email / SMTP', '', '#EA4335']] },
+  { title: 'Team notifications', items: [['Slack', 'slack', '#36C5F0'], ['Discord', 'discord', '#5865F2'], ['Microsoft Teams', 'microsoftteams', '#6264A7']] },
+  { title: 'Universal connectivity', items: [['Webhooks', '', '#F59E0B'], ['HTTP APIs', '', '#22C55E']] },
 ]
 
 const securityItems = [
@@ -55,6 +47,32 @@ const securityItems = [
 ]
 
 /* ---------- small animation helpers ---------- */
+
+function SlackLogo() {
+  return (
+    <svg viewBox="0 0 24 24" className="integration-svg-logo slack-logo" aria-hidden="true">
+      <path fill="#36C5F0" d="M7.6 2.5a2.35 2.35 0 1 0 0 4.7H10V4.85A2.35 2.35 0 0 0 7.6 2.5Z" />
+      <path fill="#2EB67D" d="M21.5 7.6a2.35 2.35 0 1 0-4.7 0V10h2.35a2.35 2.35 0 0 0 2.35-2.4Z" />
+      <path fill="#ECB22E" d="M16.4 21.5a2.35 2.35 0 1 0 0-4.7H14.1v2.35a2.35 2.35 0 0 0 2.3 2.35Z" />
+      <path fill="#E01E5A" d="M2.5 16.4a2.35 2.35 0 1 0 4.7 0v-2.3H4.85A2.35 2.35 0 0 0 2.5 16.4Z" />
+      <path fill="#36C5F0" d="M10 7.2H7.6a2.35 2.35 0 1 0 0 4.7H10V7.2Z" />
+      <path fill="#2EB67D" d="M16.8 10V7.6a2.35 2.35 0 1 0-4.7 0V10h4.7Z" />
+      <path fill="#ECB22E" d="M14 16.8h2.4a2.35 2.35 0 1 0 0-4.7H14v4.7Z" />
+      <path fill="#E01E5A" d="M7.2 14v2.4a2.35 2.35 0 1 0 4.7 0V14H7.2Z" />
+    </svg>
+  )
+}
+
+function TeamsLogo() {
+  return (
+    <svg viewBox="0 0 24 24" className="integration-svg-logo teams-logo" aria-hidden="true">
+      <circle cx="18.2" cy="5.8" r="2.3" fill="#7B83EB" />
+      <path d="M16.4 9.1h4.2v7.1a2.1 2.1 0 0 1-2.1 2.1h-2.1z" fill="#5B5FC7" />
+      <rect x="2.5" y="6" width="13" height="13" rx="2.2" fill="#6264A7" />
+      <path d="M6.1 9.1h5.8v2.1H10v5.7H7.9v-5.7H6.1z" fill="#FFF" />
+    </svg>
+  )
+}
 
 function Reveal({ children, className = '', delay = 0, as: Tag = 'div' }: { children: React.ReactNode; className?: string; delay?: number; as?: any }) {
   const ref = useRef<HTMLDivElement>(null)
@@ -526,9 +544,9 @@ export default function FlowOpsClean() {
           <span className="orb orb-a" /><span className="orb orb-b" /><span className="orb orb-c" /><span className="grid-lines" /><span className="grain" />
         </div>
 
-        <Reveal className="reveal-fade"><div className="eyebrow center"><Sparkles size={13} /> Reliability, without the guesswork</div></Reveal>
+        <Reveal className="reveal-fade"><div className="eyebrow center"><Sparkles size={13} /> Production reliability for automated workflows</div></Reveal>
         <Reveal delay={60} className="reveal-fade"><h1>Build workflows that<br /><span>stay reliable.</span></h1></Reveal>
-        <Reveal delay={120} className="reveal-fade"><p>Build, run, monitor, and troubleshoot automated workflows in one place — from the first trigger to the final recovery.</p></Reveal>
+        <Reveal delay={120} className="reveal-fade"><p>Build, run, monitor, detect anomalies, investigate failures, and take action — with every execution visible from the first trigger to the final recovery.</p></Reveal>
         <Reveal delay={180} className="reveal-fade">
           <div className="buttons">
             <Link href="/register" className="white-button">Start building <ArrowRight size={16} /></Link>
@@ -838,9 +856,9 @@ export default function FlowOpsClean() {
       </section>
       <section id="reliability-layer" className="flowops-layer-section">
         <Reveal className="reveal-fade layer-intro">
-          <div className="eyebrow">One platform for workflows</div>
-          <h2>Build them here.<br /><em>Connect the rest.</em></h2>
-          <p>Build and run workflows directly in FlowOps, or connect the automation and orchestration tools you already use. Either way, every execution flows into the same reliability view.</p>
+          <div className="eyebrow">One reliability layer</div>
+          <h2>One reliability layer<br /><em>for every workflow.</em></h2>
+          <p>Build workflows in FlowOps or connect the systems you already use. Either way, every execution flows into the same reliability layer — with one place to monitor, detect, investigate, and resolve what changes.</p>
         </Reveal>
 
         <Reveal delay={90} className="layer-diagram">
@@ -924,7 +942,7 @@ export default function FlowOpsClean() {
             <div className="journey-copy">
               <span>RESOLVE</span>
               <h3>Evidence becomes an action</h3>
-              <p>The incident handoff contains the affected runs, dependency context, and next steps.</p>
+              <p>The incident handoff contains affected runs, dependency context, and next steps — ready for your team to act on.</p>
             </div>
           </div>
         </Reveal>
@@ -965,9 +983,9 @@ export default function FlowOpsClean() {
 
       <section id="integrations" className="center-section integrations-section">
         <Reveal className="reveal-fade integrations-intro">
-          <div className="eyebrow center">Integrations</div>
+          <div className="eyebrow center">Connect without changing your stack</div>
           <h2>Fits into the stack you already run.</h2>
-          <p>Connect existing systems through webhooks and HTTP APIs, with supported operational integrations.</p>
+          <p>Connect your existing workflows and operational systems without rebuilding your stack. Start with the integrations FlowOps supports today, or connect anything through webhooks and HTTP APIs.</p>
         </Reveal>
 
         <div className="integration-grid integration-grid-reference">
@@ -975,16 +993,24 @@ export default function FlowOpsClean() {
             <Reveal key={title} delay={i * 45} className="integration-reference-card">
               <div className="integration-card-title">{title}</div>
               <div className="integration-card-items">
-                {items.map(([name, slug]) => (
+                {items.map(([name, slug, color]) => (
                   <span key={name} className="integration-item">
-                    <span className="integration-logo-wrap">
-                      <img
-                        className="integration-logo"
-                        src={`https://cdn.simpleicons.org/${slug}/ffffff`}
-                        alt=""
-                        aria-hidden="true"
-                        loading="lazy"
-                      />
+                    <span className="integration-logo-wrap" style={{ '--integration-color': color } as React.CSSProperties}>
+                      {name === 'Slack' ? (
+                        <SlackLogo />
+                      ) : name === 'Microsoft Teams' ? (
+                        <TeamsLogo />
+                      ) : slug ? (
+                        <img
+                          className="integration-logo integration-logo-color"
+                          src={`https://cdn.simpleicons.org/${slug}/${(color || '#ffffff').replace('#', '')}`}
+                          alt=""
+                          aria-hidden="true"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <span className="integration-generic-icon" aria-hidden="true">{name === 'HTTP APIs' ? '↗' : name === 'Webhooks' ? '⌁' : '✉'}</span>
+                      )}
                     </span>
                     <b>{name}</b>
                   </span>
@@ -1043,7 +1069,7 @@ export default function FlowOpsClean() {
               <span>Postgres</span>
             </div>
             <div className="builder-system">
-              <img src="https://cdn.simpleicons.org/slack/ffffff" alt="" aria-hidden="true" />
+              <img src="https://cdn.simpleicons.org/slack/36C5F0" alt="" aria-hidden="true" />
               <span>Slack</span>
             </div>
             <div className="builder-system">
@@ -5683,12 +5709,12 @@ body {
           width: min(1110px, 100%) !important;
           margin: 56px auto 0 !important;
           display: grid !important;
-          grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+          grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
           gap: 14px !important;
         }
 
         .integration-reference-card {
-          min-height: 150px;
+          min-height: 174px;
           padding: 20px 18px 18px !important;
           border: 1px solid rgba(255,255,255,.075) !important;
           border-radius: 12px !important;
@@ -5753,7 +5779,47 @@ body {
           transition: opacity .25s ease, transform .25s ease;
         }
 
-        .integration-reference-card:hover .integration-logo {
+        .integration-svg-logo {
+          width: 18px;
+          height: 18px;
+          display: block;
+          opacity: .98;
+          transition: opacity .25s ease, transform .25s ease;
+        }
+
+        .teams-logo {
+          color: #7b83eb;
+        }
+
+        .integration-generic-icon {
+          width: 17px;
+          height: 17px;
+          display: grid;
+          place-items: center;
+          color: rgba(255,255,255,.72);
+          font-size: 14px;
+          font-weight: 600;
+          line-height: 1;
+        }
+
+        .integration-reference-card::after {
+          content: '';
+          display: block;
+          width: 28px;
+          height: 1px;
+          margin-top: 18px;
+          background: linear-gradient(90deg, rgba(255,255,255,.22), transparent);
+          opacity: .7;
+          transition: width .3s ease, opacity .3s ease;
+        }
+
+        .integration-reference-card:hover::after {
+          width: 48px;
+          opacity: 1;
+        }
+
+        .integration-reference-card:hover .integration-logo,
+        .integration-reference-card:hover .integration-svg-logo {
           opacity: 1;
           transform: scale(1.06);
         }
@@ -5786,8 +5852,8 @@ body {
 
         @media (max-width: 1180px) {
           .integration-grid-reference {
-            grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
-            max-width: 900px !important;
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+            max-width: 760px !important;
           }
         }
 
@@ -5799,7 +5865,7 @@ body {
           }
 
           .integration-reference-card {
-            min-height: 138px;
+            min-height: 150px;
             padding: 17px 15px 16px !important;
           }
 

@@ -3,10 +3,17 @@
 import * as React from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { PanelRightClose } from "lucide-react";
+import {
+  Braces,
+  Info,
+  PanelRightClose,
+  Settings2,
+  Sparkles,
+  Variable,
+} from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { fetchAiAgents } from "@/lib/api";
+import { fetchAiAgents, fetchIntegrations } from "@/lib/api";
 import type { ConfigField, NodeDefinition } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,22 +25,108 @@ import { resolveIcon, type FlowNode } from "@/components/app/builder/shared";
 interface ConfigPanelProps {
   node: FlowNode | null;
   def: NodeDefinition | undefined;
+
   /** Node ids reachable upstream — offered as {{nodeId.field}} references. */
   upstreamIds: string[];
+
   onClose: () => void;
   onLabelChange: (label: string) => void;
   onConfigChange: (key: string, value: unknown) => void;
 }
 
-/**
- * Right rail.
- *
- * Important layout rules:
- * - The panel has a bounded width so it cannot push the canvas outside the viewport.
- * - `min-w-0` allows the panel contents to shrink correctly inside flex/grid layouts.
- * - `overflow-hidden` prevents long labels/controls from expanding the rail.
- * - The inner content owns vertical scrolling.
- */
+const THESVG_SLUGS: Record<string, string> = {
+  github: "github",
+  github_actions: "github-actions",
+  gitlab: "gitlab",
+  salesforce: "salesforce",
+  hubspot: "hubspot",
+  pipedrive: "pipedrive",
+  jira: "jira",
+  linear: "linear",
+  asana: "asana",
+  slack: "slack",
+  discord: "discord",
+  telegram: "telegram",
+  twilio: "twilio",
+  sendgrid: "sendgrid",
+  resend: "resend",
+  gmail: "gmail",
+  notion: "notion",
+  google_sheets: "google-sheets",
+  stripe: "stripe",
+  openai: "openai",
+  anthropic: "anthropic",
+  n8n: "n8n",
+  zapier: "zapier",
+  make: "make",
+  temporal: "temporal",
+  vercel: "vercel",
+  sentry: "sentry",
+  pagerduty: "pagerduty",
+  aws: "aws",
+  s3: "s3",
+};
+
+function normalizeKey(value: string | undefined) {
+  return (value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function resolveTheSvgSlug(type?: string, label?: string) {
+  const values = [normalizeKey(type), normalizeKey(label)].filter(Boolean);
+
+  for (const value of values) {
+    if (THESVG_SLUGS[value]) {
+      return THESVG_SLUGS[value];
+    }
+
+    for (const [key, slug] of Object.entries(THESVG_SLUGS)) {
+      if (value.includes(key)) {
+        return slug;
+      }
+    }
+  }
+
+  return null;
+}
+
+function NodeBrandIcon({
+  type,
+  label,
+  icon,
+  className,
+}: {
+  type?: string;
+  label?: string;
+  icon?: string;
+  className?: string;
+}) {
+  const slug = resolveTheSvgSlug(type, label);
+
+  if (slug) {
+    return (
+      <img
+        src={`https://thesvg.org/icons/${slug}/default.svg`}
+        alt=""
+        aria-hidden="true"
+        className={cn("size-5 object-contain", className)}
+      />
+    );
+  }
+
+  const Icon = resolveIcon(icon);
+
+  return <Icon className={cn("size-5", className)} />;
+}
+
+const fieldControlClass =
+  "h-9 w-full rounded-lg border-white/[0.09] bg-white/[0.035] text-white shadow-none transition-all placeholder:text-white/25 hover:border-white/[0.14] focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/10";
+
+const textAreaClass =
+  "w-full rounded-lg border-white/[0.09] bg-white/[0.035] text-white shadow-none transition-all placeholder:text-white/25 hover:border-white/[0.14] focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/10";
+
 export function ConfigPanel({
   node,
   def,
@@ -43,95 +136,195 @@ export function ConfigPanel({
   onConfigChange,
 }: ConfigPanelProps) {
   const panelClassName =
-    "flex h-full w-[300px] max-w-[300px] min-w-0 shrink-0 flex-col overflow-hidden border-l border-white/[0.075] bg-[#0a0a0a]";
+    "flex h-full w-[320px] max-w-[320px] min-w-0 shrink-0 flex-col overflow-hidden border-l border-white/[0.07] bg-[#08090b] shadow-[-18px_0_40px_-30px_rgba(0,0,0,0.9)]";
 
   if (!node) {
     return (
       <aside className={panelClassName} aria-label="Inspector">
-        <div className="flex h-12 min-w-0 shrink-0 items-center border-b border-white/[0.075] px-3">
-          <span className="truncate text-sm font-semibold">Inspector</span>
+        <div className="flex h-14 shrink-0 items-center border-b border-white/[0.07] px-4">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div className="flex size-8 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.035]">
+              <Settings2 className="size-4 text-white/55" />
+            </div>
+
+            <div className="min-w-0">
+              <p className="text-[13px] font-semibold tracking-[-0.01em] text-white/90">
+                Inspector
+              </p>
+
+              <p className="text-[10px] text-white/35">
+                Workflow node settings
+              </p>
+            </div>
+          </div>
         </div>
 
-        <div className="flex min-w-0 flex-1 items-center justify-center overflow-hidden p-6 text-center text-sm text-white/40">
-          <p className="max-w-[220px]">
-            Select a node to edit its configuration.
-          </p>
+        <div className="flex min-h-0 flex-1 items-center justify-center p-7">
+          <div className="max-w-[230px] text-center">
+            <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-2xl border border-white/[0.08] bg-white/[0.025] shadow-[0_0_30px_-18px_rgba(255,255,255,0.35)]">
+              <Settings2 className="size-5 text-white/35" />
+            </div>
+
+            <p className="text-sm font-medium text-white/75">
+              Select a node
+            </p>
+
+            <p className="mt-1.5 text-xs leading-relaxed text-white/35">
+              Choose a node on the canvas to edit its configuration and inputs.
+            </p>
+          </div>
         </div>
       </aside>
     );
   }
 
-  const Icon = resolveIcon(def?.icon);
   const config = node.data.config ?? {};
+  const title = def?.label ?? node.type;
+  const brandSlug = resolveTheSvgSlug(node.type, title);
 
   return (
     <aside className={panelClassName} aria-label="Inspector">
-      <div className="flex h-12 min-w-0 shrink-0 items-center gap-2 border-b border-white/[0.075] px-3">
-        <span className="flex size-6 shrink-0 items-center justify-center rounded bg-primary/15 text-primary">
-          <Icon className="size-3.5" />
-        </span>
-
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-          {def?.label ?? node.type}
-        </span>
-
-        <Button
-          variant="ghost"
-          size="icon"
-          className="shrink-0"
-          onClick={onClose}
-          aria-label="Close inspector"
-        >
-          <PanelRightClose className="size-4" />
-        </Button>
-      </div>
-
-      <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto p-4">
-        {def?.description && (
-          <p className="break-words text-xs leading-relaxed text-muted-foreground">
-            {def.description}
-          </p>
-        )}
-
-        {/* Display label — always editable, independent of config fields. */}
-        <div className="min-w-0 space-y-1.5">
-          <Label htmlFor="node-label" className="text-white/60">
-            Label
-          </Label>
-
-          <Input
-            id="node-label"
-            value={node.data.label ?? ""}
-            placeholder={def?.label ?? "Node label"}
-            className="min-w-0"
-            onChange={(e) => onLabelChange(e.target.value)}
-          />
-        </div>
-
-        {def && def.configFields.length > 0 && (
-          <div className="min-w-0 space-y-4 border-t border-white/[0.075] pt-4">
-            {def.configFields.map((field) => (
-              <FieldControl
-                key={field.key}
-                field={field}
-                value={config[field.key]}
-                onChange={(v) => onConfigChange(field.key, v)}
-              />
-            ))}
+      <div className="shrink-0 border-b border-white/[0.07] bg-gradient-to-b from-white/[0.02] to-transparent">
+        <div className="flex h-14 items-center gap-2.5 px-3.5">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-xl border border-white/[0.09] bg-white/[0.04] shadow-[0_8px_24px_-18px_rgba(255,255,255,0.45)]">
+            <NodeBrandIcon
+              type={node.type}
+              label={title}
+              icon={def?.icon}
+            />
           </div>
-        )}
 
-        <VariableHint upstreamIds={upstreamIds} />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[13px] font-semibold tracking-[-0.01em] text-white/90">
+              {title}
+            </p>
+
+            <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
+              <span className="truncate font-mono text-[9px] uppercase tracking-[0.11em] text-white/30">
+                {node.type}
+              </span>
+
+              {brandSlug && (
+                <span
+                  className="size-1 rounded-full bg-primary/70"
+                  aria-hidden="true"
+                />
+              )}
+            </div>
+          </div>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 shrink-0 rounded-lg text-white/40 hover:bg-white/[0.06] hover:text-white/80"
+            onClick={onClose}
+            aria-label="Close inspector"
+          >
+            <PanelRightClose className="size-4" />
+          </Button>
+        </div>
       </div>
 
-      <p className="min-w-0 shrink-0 truncate border-t border-white/[0.075] px-4 py-2 font-mono text-[10px] text-white/40">
-        id: {node.id}
-      </p>
+      <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+        <div className="space-y-3.5 p-3.5">
+          {def?.description && (
+            <div className="rounded-xl border border-white/[0.07] bg-white/[0.022] p-3">
+              <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.13em] text-white/35">
+                <Info className="size-3" />
+                About this node
+              </div>
+
+              <p className="break-words text-[11px] leading-relaxed text-white/50">
+                {def.description}
+              </p>
+            </div>
+          )}
+
+          <section className="rounded-xl border border-white/[0.07] bg-white/[0.018] p-3">
+            <div className="mb-3 flex items-center gap-2">
+              <div className="flex size-6 items-center justify-center rounded-lg bg-primary/[0.12] text-primary">
+                <Settings2 className="size-3.5" />
+              </div>
+
+              <div>
+                <p className="text-[11px] font-semibold text-white/80">
+                  General
+                </p>
+
+                <p className="text-[10px] text-white/30">
+                  Identity and display
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label
+                htmlFor="node-label"
+                className="text-[10px] font-medium uppercase tracking-[0.1em] text-white/40"
+              >
+                Label
+              </Label>
+
+              <Input
+                id="node-label"
+                value={node.data.label ?? ""}
+                placeholder={def?.label ?? "Node label"}
+                className={fieldControlClass}
+                onChange={(e) => onLabelChange(e.target.value)}
+              />
+            </div>
+          </section>
+
+          {def && def.configFields.length > 0 && (
+            <section className="rounded-xl border border-white/[0.07] bg-white/[0.018] p-3">
+              <div className="mb-3 flex items-center gap-2">
+                <div className="flex size-6 items-center justify-center rounded-lg bg-white/[0.05] text-white/55">
+                  <Braces className="size-3.5" />
+                </div>
+
+                <div>
+                  <p className="text-[11px] font-semibold text-white/80">
+                    Configuration
+                  </p>
+
+                  <p className="text-[10px] text-white/30">
+                    Runtime inputs for this node
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-3.5">
+                {def.configFields.map((field) => (
+                  <FieldControl
+                    key={field.key}
+                    field={field}
+                    value={config[field.key]}
+                    onChange={(v) => onConfigChange(field.key, v)}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
+          <VariableHint upstreamIds={upstreamIds} />
+        </div>
+      </div>
+
+      <div className="shrink-0 border-t border-white/[0.07] bg-[#08090b]/95 px-3.5 py-2.5 backdrop-blur">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-[9px] font-semibold uppercase tracking-[0.12em] text-white/25">
+            Node ID
+          </span>
+
+          <span className="min-w-0 truncate font-mono text-[10px] text-white/35">
+            {node.id}
+          </span>
+        </div>
+      </div>
     </aside>
   );
 }
 
-/** One config field. The widget is chosen from `field.type`. */
 function FieldControl({
   field,
   value,
@@ -148,27 +341,29 @@ function FieldControl({
       {field.type !== "boolean" && (
         <Label
           htmlFor={controlId}
-          className="flex min-w-0 items-center gap-1 text-white/60"
+          className="flex min-w-0 items-center gap-1 text-[10px] font-medium uppercase tracking-[0.08em] text-white/45"
         >
-          <span className="min-w-0 truncate">{field.label}</span>
+          <span className="min-w-0 truncate">
+            {field.label}
+          </span>
 
           {field.required && (
-            <span className="shrink-0 text-destructive">*</span>
+            <span className="text-primary">
+              *
+            </span>
           )}
         </Label>
       )}
 
-      <div className="min-w-0">
-        <FieldWidget
-          controlId={controlId}
-          field={field}
-          value={value}
-          onChange={onChange}
-        />
-      </div>
+      <FieldWidget
+        controlId={controlId}
+        field={field}
+        value={value}
+        onChange={onChange}
+      />
 
       {field.help && (
-        <p className="break-words text-[11px] leading-relaxed text-muted-foreground">
+        <p className="break-words text-[10px] leading-relaxed text-white/28">
           {field.help}
         </p>
       )}
@@ -197,8 +392,10 @@ function FieldWidget({
           placeholder={field.placeholder ?? undefined}
           rows={field.type === "code" ? 6 : 3}
           className={cn(
-            "min-w-0 max-w-full resize-y",
-            field.type === "code" && "font-mono text-xs",
+            textAreaClass,
+            "resize-y",
+            field.type === "code" &&
+              "font-mono text-xs leading-relaxed",
           )}
           onChange={(e) => onChange(e.target.value)}
         />
@@ -215,9 +412,13 @@ function FieldWidget({
               : ""
           }
           placeholder={field.placeholder ?? undefined}
-          className="min-w-0 max-w-full"
+          className={fieldControlClass}
           onChange={(e) =>
-            onChange(e.target.value === "" ? null : Number(e.target.value))
+            onChange(
+              e.target.value === ""
+                ? null
+                : Number(e.target.value),
+            )
           }
         />
       );
@@ -226,21 +427,27 @@ function FieldWidget({
       return (
         <label
           htmlFor={controlId}
-          className="flex min-w-0 cursor-pointer items-center gap-2 text-sm font-medium"
+          className="flex cursor-pointer items-center justify-between rounded-lg border border-white/[0.07] bg-white/[0.025] px-3 py-2.5 transition-colors hover:border-white/[0.12] hover:bg-white/[0.035]"
         >
+          <div className="min-w-0 pr-3">
+            <span className="block break-words text-xs font-medium text-white/75">
+              {field.label}
+            </span>
+
+            {field.help && (
+              <span className="mt-0.5 block break-words text-[10px] text-white/28">
+                {field.help}
+              </span>
+            )}
+          </div>
+
           <input
             id={controlId}
             type="checkbox"
             checked={value === true}
             onChange={(e) => onChange(e.target.checked)}
-            className="size-4 shrink-0 rounded border-input accent-primary"
+            className="size-4 shrink-0 cursor-pointer accent-primary"
           />
-
-          <span className="min-w-0 break-words">{field.label}</span>
-
-          {field.required && (
-            <span className="shrink-0 text-destructive">*</span>
-          )}
         </label>
       );
 
@@ -249,8 +456,13 @@ function FieldWidget({
         <select
           id={controlId}
           value={typeof value === "string" ? value : ""}
-          onChange={(e) => onChange(e.target.value || null)}
-          className="flex h-9 w-full min-w-0 max-w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          onChange={(e) =>
+            onChange(e.target.value || null)
+          }
+          className={cn(
+            fieldControlClass,
+            "px-3 py-1 text-sm outline-none",
+          )}
         >
           <option value="">— Select —</option>
 
@@ -281,6 +493,15 @@ function FieldWidget({
         />
       );
 
+    case "integration":
+      return (
+        <IntegrationSelect
+          controlId={controlId}
+          value={value}
+          onChange={onChange}
+        />
+      );
+
     case "string":
     default:
       return (
@@ -288,17 +509,13 @@ function FieldWidget({
           id={controlId}
           value={typeof value === "string" ? value : ""}
           placeholder={field.placeholder ?? undefined}
-          className="min-w-0 max-w-full"
+          className={fieldControlClass}
           onChange={(e) => onChange(e.target.value)}
         />
       );
   }
 }
 
-/**
- * Dynamic picker for the `ai_agent` node's saved-agent reference.
- * Loads the org's agents and offers them as options.
- */
 function AgentSelect({
   controlId,
   value,
@@ -314,11 +531,14 @@ function AgentSelect({
   });
 
   const agents = query.data?.agents ?? [];
-  const current = typeof value === "string" ? value : "";
+  const current =
+    typeof value === "string"
+      ? value
+      : "";
 
   if (query.isError) {
     return (
-      <p className="break-words text-[11px] leading-relaxed text-destructive">
+      <p className="rounded-lg border border-destructive/20 bg-destructive/5 p-2.5 text-[10px] leading-relaxed text-destructive">
         Could not load agents. The inline instructions below will be used.
       </p>
     );
@@ -326,16 +546,22 @@ function AgentSelect({
 
   if (!query.isPending && agents.length === 0) {
     return (
-      <p className="break-words text-[11px] leading-relaxed text-muted-foreground">
-        No saved agents yet.{" "}
-        <Link
-          href="/agents"
-          className="text-primary underline-offset-2 hover:underline"
-        >
-          Create one
-        </Link>
-        , or use the inline instructions below.
-      </p>
+      <div className="rounded-lg border border-white/[0.07] bg-white/[0.02] p-3">
+        <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold text-white/55">
+          <Sparkles className="size-3" />
+          No saved agents
+        </div>
+
+        <p className="text-[10px] leading-relaxed text-white/30">
+          <Link
+            href="/agents"
+            className="text-primary underline-offset-2 hover:underline"
+          >
+            Create one
+          </Link>{" "}
+          or use the inline instructions below.
+        </p>
+      </div>
     );
   }
 
@@ -344,15 +570,24 @@ function AgentSelect({
       id={controlId}
       value={current}
       disabled={query.isPending}
-      onChange={(e) => onChange(e.target.value || null)}
-      className="flex h-9 w-full min-w-0 max-w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-    >
-      <option value="">— None (use inline instructions) —</option>
-
-      {/* Keep a dangling reference visible rather than silently showing "None". */}
-      {current && !agents.some((a) => a.id === current) && (
-        <option value={current}>Unavailable agent</option>
+      onChange={(e) =>
+        onChange(e.target.value || null)
+      }
+      className={cn(
+        fieldControlClass,
+        "px-3 py-1 text-sm outline-none",
       )}
+    >
+      <option value="">
+        — None (use inline instructions) —
+      </option>
+
+      {current &&
+        !agents.some((a) => a.id === current) && (
+          <option value={current}>
+            Unavailable agent
+          </option>
+        )}
 
       {agents.map((a) => (
         <option key={a.id} value={a.id}>
@@ -363,12 +598,88 @@ function AgentSelect({
   );
 }
 
-/**
- * JSON editor.
- *
- * Keeps raw text locally while typing and only commits the parsed value
- * on blur. Invalid JSON is surfaced inline and is not written to config.
- */
+function IntegrationSelect({
+  controlId,
+  value,
+  onChange,
+}: {
+  controlId: string;
+  value: unknown;
+  onChange: (value: unknown) => void;
+}) {
+  const query = useQuery({
+    queryKey: ["integrations"],
+    queryFn: fetchIntegrations,
+  });
+
+  const integrations =
+    query.data?.integrations.filter(
+      (i) => i.status === "connected",
+    ) ?? [];
+
+  const current =
+    typeof value === "string"
+      ? value
+      : "";
+
+  if (query.isPending) {
+    return (
+      <div className="flex h-9 items-center rounded-lg border border-white/[0.07] bg-white/[0.025] px-3 text-[10px] text-white/30">
+        Loading integrations…
+      </div>
+    );
+  }
+
+  if (query.isError) {
+    return (
+      <p className="rounded-lg border border-destructive/20 bg-destructive/5 p-2.5 text-[10px] leading-relaxed text-destructive">
+        Could not load integrations.
+      </p>
+    );
+  }
+
+  if (integrations.length === 0) {
+    return (
+      <div className="rounded-lg border border-white/[0.07] bg-white/[0.02] p-3">
+        <p className="text-[10px] leading-relaxed text-white/30">
+          No connected integrations.{" "}
+          <Link
+            href="/integrations"
+            className="text-primary underline-offset-2 hover:underline"
+          >
+            Connect one
+          </Link>
+          .
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <select
+      id={controlId}
+      value={current}
+      onChange={(e) =>
+        onChange(e.target.value || null)
+      }
+      className={cn(
+        fieldControlClass,
+        "px-3 py-1 text-sm outline-none",
+      )}
+    >
+      <option value="">
+        — Select an integration —
+      </option>
+
+      {integrations.map((i) => (
+        <option key={i.id} value={i.id}>
+          {i.name} ({i.type})
+        </option>
+      ))}
+    </select>
+  );
+}
+
 function JsonField({
   controlId,
   value,
@@ -380,22 +691,35 @@ function JsonField({
   placeholder: string | null;
   onChange: (value: unknown) => void;
 }) {
-  const [text, setText] = React.useState<string>(() =>
-    value === undefined || value === null
-      ? ""
-      : JSON.stringify(value, null, 2),
-  );
+  const [text, setText] =
+    React.useState<string>(() =>
+      value === undefined ||
+      value === null
+        ? ""
+        : JSON.stringify(
+            value,
+            null,
+            2,
+          ),
+    );
 
-  const [error, setError] = React.useState<string | null>(null);
+  const [error, setError] =
+    React.useState<string | null>(
+      null,
+    );
 
-  // Re-sync when a different node/value is selected.
   const nodeKey = controlId;
 
   React.useEffect(() => {
     setText(
-      value === undefined || value === null
+      value === undefined ||
+      value === null
         ? ""
-        : JSON.stringify(value, null, 2),
+        : JSON.stringify(
+            value,
+            null,
+            2,
+          ),
     );
 
     setError(null);
@@ -412,28 +736,51 @@ function JsonField({
 
     try {
       const parsed = JSON.parse(text);
+
       setError(null);
       onChange(parsed);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Invalid JSON");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Invalid JSON",
+      );
     }
   }
 
   return (
     <div className="min-w-0">
-      <Textarea
-        id={controlId}
-        value={text}
-        rows={5}
-        aria-invalid={error ? true : undefined}
-        placeholder={placeholder ?? '{ "key": "value" }'}
-        className="min-w-0 max-w-full resize-y font-mono text-xs"
-        onChange={(e) => setText(e.target.value)}
-        onBlur={commit}
-      />
+      <div className="relative">
+        <Textarea
+          id={controlId}
+          value={text}
+          rows={5}
+          aria-invalid={
+            error
+              ? true
+              : undefined
+          }
+          placeholder={
+            placeholder ??
+            '{ "key": "value" }'
+          }
+          className={cn(
+            textAreaClass,
+            "resize-y pr-9 font-mono text-xs leading-relaxed",
+            error &&
+              "border-destructive/40 focus-visible:border-destructive/60",
+          )}
+          onChange={(e) =>
+            setText(e.target.value)
+          }
+          onBlur={commit}
+        />
+
+        <Braces className="pointer-events-none absolute right-3 top-3 size-3.5 text-white/20" />
+      </div>
 
       {error && (
-        <p className="mt-1 break-words text-[11px] text-destructive">
+        <p className="mt-1.5 break-words rounded-md bg-destructive/5 px-2 py-1 text-[10px] leading-relaxed text-destructive">
           {error}
         </p>
       )}
@@ -441,28 +788,46 @@ function JsonField({
   );
 }
 
-/** Small helper listing upstream node ids the user can reference in templates. */
-function VariableHint({ upstreamIds }: { upstreamIds: string[] }) {
-  if (upstreamIds.length === 0) return null;
+function VariableHint({
+  upstreamIds,
+}: {
+  upstreamIds: string[];
+}) {
+  if (upstreamIds.length === 0) {
+    return null;
+  }
 
   return (
-    <div className="min-w-0 space-y-1.5 border-t border-white/[0.075] pt-4">
-      <Label className="text-white/60">Available variables</Label>
+    <div className="rounded-xl border border-primary/[0.12] bg-primary/[0.035] p-3">
+      <div className="mb-2 flex items-center gap-2">
+        <div className="flex size-6 items-center justify-center rounded-lg bg-primary/[0.12] text-primary">
+          <Variable className="size-3.5" />
+        </div>
 
-      <p className="break-words text-[11px] leading-relaxed text-muted-foreground">
+        <div>
+          <p className="text-[11px] font-semibold text-white/80">
+            Available variables
+          </p>
+
+          <p className="text-[10px] text-white/30">
+            Use outputs from upstream nodes
+          </p>
+        </div>
+      </div>
+
+      <p className="text-[10px] leading-relaxed text-white/35">
         Reference upstream output with{" "}
-        <code className="break-all rounded bg-muted px-1 font-mono">
+        <code className="rounded-md border border-white/[0.06] bg-black/20 px-1.5 py-0.5 font-mono text-[9px] text-primary/80">
           {"{{nodeId.field}}"}
         </code>
-        .
       </p>
 
-      <div className="flex min-w-0 flex-wrap gap-1 overflow-hidden">
+      <div className="mt-2.5 flex min-w-0 flex-wrap gap-1.5">
         {upstreamIds.map((id) => (
           <Badge
             key={id}
             variant="outline"
-            className="max-w-full break-all font-mono"
+            className="max-w-full break-all border-primary/[0.14] bg-primary/[0.04] font-mono text-[9px] font-normal text-white/55"
           >
             {`{{${id}}}`}
           </Badge>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Loader2, RefreshCw, Eye, EyeOff, Zap } from "lucide-react";
+import { Loader2, RefreshCw, Eye, EyeOff, Zap, Search } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -13,14 +13,8 @@ import { getErrorMessage } from "@/lib/api";
 import type { ExternalWorkflow, MonitoredWorkflowsResponse } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
 import {
   Table,
@@ -31,7 +25,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import {
   Dialog,
   DialogContent,
@@ -83,7 +76,11 @@ export function WorkflowDiscovery({
     try {
       const result = await testIntegration(integrationId);
       setTestResult(result);
-      toast.success(result.success ? "Connection test passed." : `Test failed: ${result.message}`);
+      if (result.success) {
+        toast.success("Connection test passed.");
+      } else {
+        toast.error(`Test failed: ${result.message ?? "Unknown error"}`);
+      }
     } catch (err) {
       const msg = getErrorMessage(err, "Test failed");
       setTestResult({ success: false, message: msg });
@@ -115,20 +112,20 @@ export function WorkflowDiscovery({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-4xl max-h-[80vh]">
-        <DialogHeader>
-          <DialogTitle>Workflows for {integrationName}</DialogTitle>
-          <DialogDescription>
-            Discovered workflows from your {integrationName} instance. Enable monitoring
-            to sync execution telemetry and run anomaly detection.
-          </DialogDescription>
+      <DialogContent className="border-white/[0.08] !bg-[#0a0a0a] max-w-4xl max-h-[80vh]">
+        <DialogHeader className="space-y-3">
+            <DialogTitle className="text-white/90">Workflows for {integrationName}</DialogTitle>
+            <DialogDescription className="text-white/44">
+              Discovered workflows from your {integrationName} instance. Enable monitoring
+              to sync execution telemetry and run anomaly detection.
+            </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-4">
           {/* Test connection bar */}
           <div className="flex items-center gap-3">
-            <Button variant="outline" onClick={handleTestConnection} disabled={isTesting}>
-              {isTesting && <Loader2 className="size-4 animate-spin" />}
+            <Button variant="outline" onClick={handleTestConnection} disabled={isTesting} className="bg-[#0a0a0a] border-white/[0.08]">
+              {isTesting && <Loader2 className="size-4 animate-spin mr-2" />}
               Test Connection
             </Button>
             {testResult && (
@@ -136,7 +133,7 @@ export function WorkflowDiscovery({
                 {testResult.success ? "Connected" : "Failed"}
               </Badge>
             )}
-            <Button variant="ghost" size="icon" onClick={loadWorkflows}>
+            <Button variant="ghost" size="icon" onClick={loadWorkflows} className="text-white/60 hover:text-white">
               <RefreshCw className="size-4" />
             </Button>
           </div>
@@ -147,33 +144,33 @@ export function WorkflowDiscovery({
               placeholder="Search workflows…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9"
+              className="pl-9 bg-[#0a0a0a] border-white/[0.08]"
             />
-            <Eye className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-white/44" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-white/44" />
           </div>
 
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 className="size-6 animate-spin" />
+              <Loader2 className="size-6 animate-spin text-primary" />
             </div>
           ) : filteredWorkflows.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 text-white/44">
+            <div className="flex flex-col items-center justify-center py-12 text-white/44">
               <p>No workflows found.</p>
               <p className="text-sm">Click "Test Connection" then refresh to discover workflows.</p>
             </div>
           ) : (
-            <Card>
+            <Card className="border-white/[0.08] !bg-[#0a0a0a]">
               <Table>
                 <TableHeader>
-                  <TableRow>
-                    <TableHead>Workflow</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Monitoring</TableHead>
+                  <TableRow className="border-white/[0.08] hover:bg-transparent">
+                    <TableHead className="text-white/60">Workflow</TableHead>
+                    <TableHead className="text-white/60">Status</TableHead>
+                    <TableHead className="text-right text-white/60">Monitoring</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredWorkflows.map((wf) => (
-                    <TableRow key={wf.id}>
+                    <TableRow key={wf.id} className="border-white/[0.08] hover:bg-white/[0.02]">
                       <TableCell>
                         <div className="flex items-center gap-3">
                           <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -217,7 +214,7 @@ export function WorkflowDiscovery({
         </div>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={onClose} className="text-white/60 hover:text-white">
             Done
           </Button>
         </DialogFooter>

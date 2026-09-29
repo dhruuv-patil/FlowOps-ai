@@ -677,20 +677,58 @@ export interface ConnectIntegrationBody {
 
 /* --- provider-agnostic integration (M5+ workflow providers) ------------------ */
 
+/**
+ * Known provider type strings (wire values from IntegrationType.wire() on the
+ * backend).  Typed as a union of known values plus `string` so that providers
+ * added to the backend registry without a frontend update do not cause
+ * TypeScript errors.  The backend is the authoritative source of accepted types.
+ */
 export type ProviderType =
-  // Workflow automation providers
+  // Workflow automation
   | "n8n"
   | "make"
   | "zapier"
   | "temporal"
+  // Developer / source control
   | "github"
-  | "custom"
-  // Delivery/notification channel providers
+  | "gitlab"
+  | "vercel"
+  | "sentry"
+  | "pagerduty"
+  | "linear"
+  | "jira"
+  | "asana"
+  // CRM & Sales
+  | "hubspot"
+  | "salesforce"
+  | "pipedrive"
+  // Communication (delivery)
   | "slack"
-  | "email"
   | "discord"
   | "teams"
-  | "webhook";
+  | "telegram"
+  | "twilio"
+  // Email (delivery)
+  | "sendgrid"
+  | "resend"
+  | "smtp"
+  // Generic / webhooks
+  | "webhook"
+  | "rest-api"
+  | "custom"
+  // Cloud & Storage
+  | "aws"
+  | "s3"
+  // Productivity
+  | "notion"
+  | "google-sheets"
+  // Payments
+  | "stripe"
+  // AI & LLM
+  | "anthropic"
+  | "openai"
+  // Forward-compatibility: allow any backend-defined type
+  | (string & Record<never, never>);
 
 /** Credential field definition returned by the provider catalog. */
 export interface CredentialField {
@@ -712,11 +750,36 @@ export interface ProviderCapabilities {
   tracing: boolean;
 }
 
+export type ProviderCategory =
+  | "COMMUNICATION"
+  | "EMAIL"
+  | "DEVELOPER"
+  | "DATABASES"
+  | "CLOUD"
+  | "STORAGE"
+  | "CRM"
+  | "PROJECT_MANAGEMENT"
+  | "PRODUCTIVITY"
+  | "PAYMENTS"
+  | "MARKETING"
+  | "ANALYTICS"
+  | "AI"
+  | "AUTOMATION"
+  | "UNIVERSAL";
+
 /** A workflow provider in the catalog. */
 export interface ProviderInfo {
   type: ProviderType;
   name: string;
+  /**
+   * Backend sends this once ProviderController.ProviderInfo includes the field.
+   * Until then the client-side PROVIDER_META registry (lib/provider-meta.ts) is
+   * used as a fallback.
+   */
+  category?: ProviderCategory;
   description: string;
+  /** May be absent if the backend has not yet added the field to ProviderInfo. */
+  icon?: string;
   available: boolean;
   capabilities: ProviderCapabilities;
   credentialFields: CredentialField[];
@@ -947,8 +1010,8 @@ export interface WorkflowTemplateSummary {
   icon: string;
   tags: string[];
   nodeCount: number;
+  providers: string[];
 }
-
 /** `GET /api/templates/{slug}` — the summary plus the graph, for a preview. */
 export interface WorkflowTemplateDetail
   extends WorkflowTemplateSummary {
@@ -979,8 +1042,25 @@ export type AnomalySeverity =
 export type AnomalyStatus =
   | "OPEN"
   | "ACKNOWLEDGED"
+  | "VERIFYING_RECOVERY"
   | "RESOLVED"
   | "FALSE_POSITIVE";
+
+export interface BaselineSnapshot {
+  baseline: string;
+  threshold: string;
+  sampleCount: number;
+}
+
+export interface RecoveryStatus {
+  anomalyStatus: AnomalyStatus;
+  verificationActive: boolean;
+  healthyCount: number;
+  observedCount: number;
+  requiredCount: number;
+  startedAt: string | null;
+  baseline: BaselineSnapshot | null;
+}
 
 /** Row in the anomalies list. */
 export interface AnomalySummary {
@@ -1020,6 +1100,10 @@ export interface AnomalyDetail {
   deviation: number;
   confidence: number;
   affectedExecutions: number;
+  recoveryStartedAt?: string | null;
+  recoveryHealthyCount?: number;
+  recoveryObservedCount?: number;
+  recoveryRequiredCount?: number;
   evidence: Record<string, unknown> | null;
   dedupKey: string;
   detectedAt: string;

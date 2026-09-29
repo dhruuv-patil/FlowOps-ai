@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
 import { useAuthStore } from "@/lib/auth-store";
@@ -18,7 +18,6 @@ import { Logo } from "@/components/brand/logo";
  */
 export function AppGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const status = useAuthStore((s) => s.status);
 
   useEffect(() => {
