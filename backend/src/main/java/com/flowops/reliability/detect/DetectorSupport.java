@@ -7,10 +7,10 @@ import com.flowops.domain.MetricBaseline;
  * baseline usability (warm-up gate), robust dispersion, value formatting for the
  * human-readable {@code expected}/{@code actual} strings, and dedup-key bounding.
  */
-final class DetectorSupport {
+public final class DetectorSupport {
 
     /** 1 / Φ⁻¹(3/4): scales MAD to a stddev-equivalent for a normal distribution. */
-    static final double MAD_TO_SIGMA = 1.4826;
+    public static final double MAD_TO_SIGMA = 1.4826;
 
     private DetectorSupport() {
     }
@@ -20,7 +20,7 @@ final class DetectorSupport {
      * Below that it is warm-up: detectors suppress anomalies rather than invent a normal
      * range from a handful of runs. A null baseline (never computed) is never usable.
      */
-    static boolean usable(MetricBaseline baseline, int minSampleCount) {
+    public static boolean usable(MetricBaseline baseline, int minSampleCount) {
         return baseline != null && baseline.getSampleCount() >= minSampleCount;
     }
 
@@ -29,7 +29,7 @@ final class DetectorSupport {
      * bulk of samples are identical (MAD 0) it falls back to a small floor derived from the
      * median so a single deviation does not read as an infinite z-score.
      */
-    static double robustSigma(MetricBaseline baseline) {
+    public static double robustSigma(MetricBaseline baseline) {
         double mad = baseline.getMad() == null ? 0.0 : baseline.getMad();
         double sigma = mad * MAD_TO_SIGMA;
         if (sigma > 0) {
@@ -40,20 +40,20 @@ final class DetectorSupport {
         return floor;
     }
 
-    static double clamp01(double v) {
+    public static double clamp01(double v) {
         if (v < 0) {
             return 0;
         }
         return Math.min(v, 1.0);
     }
 
-    static double round(double v, int decimals) {
+    public static double round(double v, int decimals) {
         double f = Math.pow(10, decimals);
         return Math.round(v * f) / f;
     }
 
     /** Human-readable duration: {@code 820ms}, {@code 1.2s}, {@code 1m 05s}. */
-    static String duration(double ms) {
+    public static String duration(double ms) {
         if (ms < 1000) {
             return Math.round(ms) + "ms";
         }
@@ -67,7 +67,7 @@ final class DetectorSupport {
     }
 
     /** Human-readable byte size: {@code 512 B}, {@code 3.4 KB}, {@code 1.2 MB}. */
-    static String bytes(double b) {
+    public static String bytes(double b) {
         if (b < 1024) {
             return Math.round(b) + " B";
         }
@@ -83,7 +83,7 @@ final class DetectorSupport {
      * readable prefix and appends a stable hash of the whole thing, so two different long
      * keys still map to different bounded keys (no accidental aggregation).
      */
-    static String capKey(String key) {
+    public static String capKey(String key) {
         if (key == null) {
             return "";
         }

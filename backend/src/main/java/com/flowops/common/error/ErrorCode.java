@@ -94,6 +94,7 @@ public enum ErrorCode {
 
     /** Returned for a nonexistent anomaly and for one owned by another org (anti-enumeration). */
     ANOMALY_NOT_FOUND(HttpStatus.NOT_FOUND, "Anomaly not found."),
+    ANOMALY_ALREADY_CLOSED(HttpStatus.CONFLICT, "This anomaly has already been closed."),
 
     NOT_FOUND(HttpStatus.NOT_FOUND, "The requested resource was not found."),
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "That method is not supported for this path."),

@@ -98,6 +98,35 @@ public final class ReliabilityEnvelopes {
     public record FalsePositiveResponse(AnomalyDetail anomaly) {
     }
 
+    /** {@code POST /api/reliability/anomalies/{id}/verify-recovery} */
+    public record VerifyRecoveryRequest(Integer requiredCount) {
+    }
+
+    public record VerifyRecoveryResponse(AnomalyDetail anomaly) {
+    }
+
+    /** {@code GET /api/reliability/anomalies/{id}/recovery} */
+    public record RecoveryStatusResponse(RecoveryStatus snapshot) {
+    }
+
+    /** Recovery snapshot mirroring the service record. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record RecoveryStatus(
+            AnomalyStatus anomalyStatus,
+            boolean verificationActive,
+            int healthyCount,
+            int observedCount,
+            int requiredCount,
+            Instant startedAt,
+            BaselineSnapshot baseline) {
+    }
+
+    public record BaselineSnapshot(
+            String baseline,
+            String threshold,
+            int sampleCount) {
+    }
+
     // =========================================================================
     // Workflow health / reliability score
     // =========================================================================

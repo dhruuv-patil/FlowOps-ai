@@ -50,6 +50,7 @@ public class ReliabilityService {
     private final IntegrationWorkflowRepository integrationWorkflows;
     private final WorkflowExecutionRepository executions;
     private final AiServiceClient aiClient;
+    private final RecoveryVerificationService recoveryService;
 
     public ReliabilityService(
             AnomalyRepository anomalies,
@@ -58,7 +59,8 @@ public class ReliabilityService {
             WorkflowRepository workflows,
             IntegrationWorkflowRepository integrationWorkflows,
             WorkflowExecutionRepository executions,
-            AiServiceClient aiClient) {
+            AiServiceClient aiClient,
+            RecoveryVerificationService recoveryService) {
         this.anomalies = anomalies;
         this.metrics = metrics;
         this.baselines = baselines;
@@ -66,6 +68,7 @@ public class ReliabilityService {
         this.integrationWorkflows = integrationWorkflows;
         this.executions = executions;
         this.aiClient = aiClient;
+        this.recoveryService = recoveryService;
     }
 
     // =========================================================================
@@ -226,6 +229,44 @@ public class ReliabilityService {
 
         return new ReliabilityEnvelopes.FalsePositiveResponse(
                 toDetail(anomalies.save(anomaly)));
+    }
+
+    @Transactional
+    public ReliabilityEnvelopes.VerifyRecoveryResponse startVerification(
+            AuthenticatedUser user,
+            UUID anomalyId,
+            Integer requiredCount) {
+
+        Anomaly anomaly = recoveryService.startVerification(user, anomalyId, requiredCount);
+        return new ReliabilityEnvelopes.VerifyRecoveryResponse(toDetail(anomaly));
+    }
+
+    @Transactional(readOnly = true)
+    public ReliabilityEnvelopes.RecoveryStatusResponse getRecoveryStatus(
+            AuthenticatedUser user,
+            UUID anomalyId) {
+
+        RecoveryVerificationService.RecoveryStatus snapshot =
+                recoveryService.getRecoveryStatus(user, anomalyId);
+
+        ReliabilityEnvelopes.BaselineSnapshot baselineEnv = null;
+        if (snapshot.baseline() != null) {
+            baselineEnv = new ReliabilityEnvelopes.BaselineSnapshot(
+                    snapshot.baseline().baseline(),
+                    snapshot.baseline().threshold(),
+                    snapshot.baseline().sampleCount());
+        }
+
+        ReliabilityEnvelopes.RecoveryStatus env = new ReliabilityEnvelopes.RecoveryStatus(
+                snapshot.anomalyStatus(),
+                snapshot.verificationActive(),
+                snapshot.healthyCount(),
+                snapshot.observedCount(),
+                snapshot.requiredCount(),
+                snapshot.startedAt(),
+                baselineEnv);
+
+        return new ReliabilityEnvelopes.RecoveryStatusResponse(env);
     }
 
     // =========================================================================

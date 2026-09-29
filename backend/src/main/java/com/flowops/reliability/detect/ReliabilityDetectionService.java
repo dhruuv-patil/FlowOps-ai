@@ -33,6 +33,7 @@ public class ReliabilityDetectionService {
     private final OutputDetector outputDetector;
     private final BehavioralDetector behavioralDetector;
     private final AnomalyRecorder recorder;
+    private final com.flowops.reliability.RecoveryVerificationService recoveryService;
 
     public ReliabilityDetectionService(
             NodeExecutionMetricRepository metrics,
@@ -40,13 +41,15 @@ public class ReliabilityDetectionService {
             LatencyDetector latencyDetector,
             OutputDetector outputDetector,
             BehavioralDetector behavioralDetector,
-            AnomalyRecorder recorder) {
+            AnomalyRecorder recorder,
+            com.flowops.reliability.RecoveryVerificationService recoveryService) {
         this.metrics = metrics;
         this.baselines = baselines;
         this.latencyDetector = latencyDetector;
         this.outputDetector = outputDetector;
         this.behavioralDetector = behavioralDetector;
         this.recorder = recorder;
+        this.recoveryService = recoveryService;
     }
 
     /**
@@ -81,6 +84,9 @@ public class ReliabilityDetectionService {
             log.info("Reliability detection for execution {} surfaced {} finding(s)",
                     executionId, findings.size());
         }
+
+        // Also evaluate any active recovery verifications for this workflow
+        recoveryService.evaluateExecution(workflowId, executionId);
     }
 
     private MetricBaseline baseline(UUID workflowId, String nodeId, String metric) {

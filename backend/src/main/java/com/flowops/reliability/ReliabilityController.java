@@ -101,6 +101,27 @@ public class ReliabilityController {
         return service.markFalsePositive(user, id, reason);
     }
 
+    /** POST /api/reliability/anomalies/{id}/verify-recovery */
+    @PostMapping("/anomalies/{id}/verify-recovery")
+    public ReliabilityEnvelopes.VerifyRecoveryResponse verifyRecovery(
+            AuthenticatedUser user,
+            @PathVariable UUID id,
+            @RequestBody(required = false) ReliabilityEnvelopes.VerifyRecoveryRequest request) {
+
+        Integer count = request != null ? request.requiredCount() : null;
+
+        return service.startVerification(user, id, count);
+    }
+
+    /** GET /api/reliability/anomalies/{id}/recovery */
+    @GetMapping("/anomalies/{id}/recovery")
+    public ReliabilityEnvelopes.RecoveryStatusResponse getRecoveryStatus(
+            AuthenticatedUser user,
+            @PathVariable UUID id) {
+
+        return service.getRecoveryStatus(user, id);
+    }
+
     // =========================================================================
     // Workflow health
     // =========================================================================

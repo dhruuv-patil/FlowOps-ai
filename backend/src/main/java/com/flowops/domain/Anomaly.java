@@ -94,6 +94,42 @@ public class Anomaly {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    // ---- recovery verification fields ----------------------------------------
+
+    /**
+     * When recovery verification was started (null = never started).
+     * Only set when status transitions to VERIFYING_RECOVERY.
+     */
+    @Column(name = "recovery_started_at")
+    private Instant recoveryStartedAt;
+
+    /**
+     * Number of healthy (non-anomalous) executions observed since verification started.
+     */
+    @Column(name = "recovery_healthy_count", nullable = false)
+    private int recoveryHealthyCount;
+
+    /**
+     * Total executions observed during the verification window (healthy + unhealthy).
+     */
+    @Column(name = "recovery_observed_count", nullable = false)
+    private int recoveryObservedCount;
+
+    /**
+     * How many consecutive healthy executions are required to confirm recovery.
+     * Defaults to 5; may be overridden at verification-start time.
+     */
+    @Column(name = "recovery_required_count", nullable = false)
+    private int recoveryRequiredCount;
+
+    /**
+     * Snapshot of the execution IDs already counted, serialized as a JSON array.
+     * Prevents double-counting the same execution across multiple telemetry rows.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "recovery_seen_executions")
+    private java.util.Set<UUID> recoverySeenExecutions;
+
     protected Anomaly() {
         // JPA
     }
@@ -220,6 +256,66 @@ public class Anomaly {
         touch();
     }
 
+    /**
+     * Begins recovery verification. The anomaly enters {@link AnomalyStatus#VERIFYING_RECOVERY};
+     * subsequent executions will be evaluated against the same baseline to confirm the fix.
+     *
+     * @param requiredCount  healthy executions needed to confirm recovery
+     */
+    public void startRecoveryVerification(int requiredCount) {
+        this.status = AnomalyStatus.VERIFYING_RECOVERY;
+        this.recoveryStartedAt = now();
+        this.recoveryHealthyCount = 0;
+        this.recoveryObservedCount = 0;
+        this.recoveryRequiredCount = Math.max(1, requiredCount);
+        this.recoverySeenExecutions = new java.util.LinkedHashSet<>();
+        touch();
+    }
+
+    /**
+     * Records one more execution observed during the recovery window.
+     *
+     * @param executionId  the execution that just completed
+     * @param healthy      true when the metric was within the normal baseline range
+     * @return {@code true} if recovery is now confirmed (enough healthy executions)
+     */
+    public boolean recordRecoveryExecution(UUID executionId, boolean healthy) {
+        if (this.recoverySeenExecutions == null) {
+            this.recoverySeenExecutions = new java.util.LinkedHashSet<>();
+        }
+        // Idempotent: do not count the same execution twice
+        if (!this.recoverySeenExecutions.add(executionId)) {
+            return false;
+        }
+        this.recoveryObservedCount += 1;
+        if (healthy) {
+            this.recoveryHealthyCount += 1;
+        } else {
+            // An unhealthy observation resets the healthy streak — the metric is still
+            // anomalous. Keep the observed count but zero the healthy counter so
+            // the user can see "2/5 — metric still outside range" rather than a
+            // misleadingly high count.
+            this.recoveryHealthyCount = 0;
+        }
+        touch();
+        boolean confirmed = this.recoveryHealthyCount >= this.recoveryRequiredCount;
+        if (confirmed) {
+            this.status = AnomalyStatus.RESOLVED;
+        }
+        return confirmed;
+    }
+
+    /**
+     * Resets recovery verification back to {@link AnomalyStatus#OPEN} when the
+     * monitoring window closes without enough healthy evidence.
+     */
+    public void cancelRecoveryVerification() {
+        if (this.status == AnomalyStatus.VERIFYING_RECOVERY) {
+            this.status = AnomalyStatus.OPEN;
+            touch();
+        }
+    }
+
     // ---- getters ----------------------------------------------------------
 
     public UUID getId() {
@@ -301,5 +397,27 @@ public class Anomaly {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    // ---- recovery verification getters ---------------------------------------
+
+    public Instant getRecoveryStartedAt() {
+        return recoveryStartedAt;
+    }
+
+    public int getRecoveryHealthyCount() {
+        return recoveryHealthyCount;
+    }
+
+    public int getRecoveryObservedCount() {
+        return recoveryObservedCount;
+    }
+
+    public int getRecoveryRequiredCount() {
+        return recoveryRequiredCount;
+    }
+
+    public java.util.Set<UUID> getRecoverySeenExecutions() {
+        return recoverySeenExecutions;
     }
 }
