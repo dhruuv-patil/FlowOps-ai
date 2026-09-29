@@ -4,21 +4,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import java.util.List;
 
 /**
- * A curated starting point for a workflow: real metadata plus a real graph made
- * only of registry node types, with every required field pre-filled.
+ * Immutable built-in workflow template definition.
  *
- * <p>Templates are product content, not tenant data — they live in code rather
- * than the database, so there is no per-organization scoping to get wrong and no
- * migration to run. "Using" one creates a genuine draft workflow in the caller's
- * own organization ({@link TemplateService#use}); nothing is ever executed.
- *
- * @param slug     stable url-safe id ({@code api-health-check})
- * @param name     human label
- * @param description one-line summary shown on the gallery card
- * @param category grouping label for the gallery
- * @param icon     PascalCase lucide icon name, resolved client-side
- * @param tags     short keywords, also used by the command palette
- * @param graph    the {@code {nodes, edges}} document copied into the new draft
+ * <p>The template catalogue is global product content. A template contains
+ * presentation metadata, the providers used by its workflow, and the actual
+ * workflow graph that is copied into a tenant workflow when the template is used.
  */
 public record WorkflowTemplate(
         String slug,
@@ -27,11 +17,59 @@ public record WorkflowTemplate(
         String category,
         String icon,
         List<String> tags,
+        List<String> providers,
         JsonNode graph) {
 
-    /** Node count, for the gallery card. Cheap enough to derive on demand. */
+    public WorkflowTemplate {
+        if (slug == null || slug.isBlank()) {
+            throw new IllegalArgumentException("Template slug must not be blank.");
+        }
+
+        if (name == null || name.isBlank()) {
+            throw new IllegalArgumentException("Template name must not be blank.");
+        }
+
+        if (description == null) {
+            description = "";
+        }
+
+        if (category == null || category.isBlank()) {
+            throw new IllegalArgumentException("Template category must not be blank.");
+        }
+
+        if (icon == null || icon.isBlank()) {
+            icon = "Workflow";
+        }
+
+        if (tags == null) {
+            tags = List.of();
+        } else {
+            tags = List.copyOf(tags);
+        }
+
+        if (providers == null) {
+            providers = List.of();
+        } else {
+            providers = providers.stream()
+                    .filter(provider -> provider != null && !provider.isBlank())
+                    .map(String::strip)
+                    .distinct()
+                    .toList();
+        }
+
+        if (graph == null || graph.isNull()) {
+            throw new IllegalArgumentException("Template graph must not be null.");
+        }
+    }
+
+    /**
+     * Number of nodes in the template graph.
+     */
     public int nodeCount() {
-        JsonNode nodes = graph == null ? null : graph.get("nodes");
-        return nodes == null ? 0 : nodes.size();
+        JsonNode nodes = graph.path("nodes");
+
+        return nodes.isArray()
+                ? nodes.size()
+                : 0;
     }
 }

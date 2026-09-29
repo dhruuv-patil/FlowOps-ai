@@ -4,10 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.flowops.workflow.templates.WorkflowTemplate;
 import java.util.List;
 
-/**
- * A template with its graph, for the read-only preview shown before the user
- * decides to use it. Previewing never creates or runs anything.
- */
 public record TemplateDetailResponse(
         String slug,
         String name,
@@ -16,9 +12,30 @@ public record TemplateDetailResponse(
         String icon,
         List<String> tags,
         int nodeCount,
+        List<String> providers,
         JsonNode graph) {
 
-    public static TemplateDetailResponse of(WorkflowTemplate template) {
+    public TemplateDetailResponse {
+        if (tags == null) {
+            tags = List.of();
+        } else {
+            tags = List.copyOf(tags);
+        }
+
+        if (providers == null) {
+            providers = List.of();
+        } else {
+            providers = List.copyOf(providers);
+        }
+
+        if (graph == null) {
+            throw new IllegalArgumentException("graph must not be null");
+        }
+    }
+
+    public static TemplateDetailResponse of(
+            WorkflowTemplate template) {
+
         return new TemplateDetailResponse(
                 template.slug(),
                 template.name(),
@@ -27,6 +44,7 @@ public record TemplateDetailResponse(
                 template.icon(),
                 template.tags(),
                 template.nodeCount(),
+                template.providers(),
                 template.graph());
     }
 }
