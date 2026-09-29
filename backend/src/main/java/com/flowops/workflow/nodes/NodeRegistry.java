@@ -1031,6 +1031,66 @@ public class NodeRegistry {
                 + "organization's matching connection.";
 
         register(new NodeDefinition(
+                "telegram", "Telegram",
+                "Sends a message through the connected Telegram BOT integration.",
+                NodeCategory.ACTION, "MessageCircle", false, 1, List.of("out"),
+                List.of(
+                        ConfigField.multiline("message", "Message", true,
+                                "Supports {{variable}} interpolation."),
+                        ConfigField.text("chatId", "Chat ID", false,
+                                "Optional override for default chat id."),
+                        ConfigField.text("integrationId", "Integration id", false, integrationHelp))));
+
+        register(new NodeDefinition(
+                "twilio", "Twilio",
+                "Sends an SMS through the connected Twilio integration.",
+                NodeCategory.ACTION, "Smartphone", false, 1, List.of("out"),
+                List.of(
+                        ConfigField.text("to", "To", true, "Destination phone number in E.164 format."),
+                        ConfigField.multiline("message", "Message", true,
+                                "Supports {{variable}} interpolation."),
+                        ConfigField.text("integrationId", "Integration id", false, integrationHelp))));
+
+        register(new NodeDefinition(
+                "stripe", "Stripe",
+                "Retrieves customer or transaction info via connected Stripe integration.",
+                NodeCategory.ACTION, "CreditCard", false, 1, List.of("out"),
+                List.of(
+                        ConfigField.select("operation", "Operation", true,
+                                List.of("retrieveCustomer", "listBalanceTransactions")),
+                        ConfigField.text("customerId", "Customer ID", false, ""),
+                        ConfigField.text("limit", "Limit", false, "Result limit (default 10)."),
+                        ConfigField.text("integrationId", "Integration id", false, integrationHelp))));
+
+        register(new NodeDefinition(
+                "openai", "OpenAI",
+                "Runs chat completions via connected OpenAI integration.",
+                NodeCategory.AI, "Bot", false, 1, List.of("out"),
+                List.of(
+                        ConfigField.multiline("prompt", "Prompt", true,
+                                "Supports {{variable}} interpolation."),
+                        ConfigField.multiline("systemPrompt", "System Instructions", false, ""),
+                        ConfigField.text("model", "Model", false, "Defaults to gpt-4o-mini."),
+                        ConfigField.text("maxTokens", "Max Tokens", false, "Default 500."),
+                        ConfigField.text("integrationId", "Integration id", false, integrationHelp))));
+
+        register(new NodeDefinition(
+                "hubspot", "HubSpot",
+                "Creates contacts or deals via connected HubSpot integration.",
+                NodeCategory.ACTION, "Briefcase", false, 1, List.of("out"),
+                List.of(
+                        ConfigField.select("operation", "Operation", true,
+                                List.of("createContact", "createDeal")),
+                        ConfigField.text("email", "Email", false, "For createContact."),
+                        ConfigField.text("firstName", "First Name", false, ""),
+                        ConfigField.text("lastName", "Last Name", false, ""),
+                        ConfigField.text("company", "Company", false, ""),
+                        ConfigField.text("dealName", "Deal Name", false, "For createDeal."),
+                        ConfigField.text("amount", "Amount", false, ""),
+                        ConfigField.text("stage", "Stage", false, ""),
+                        ConfigField.text("integrationId", "Integration id", false, integrationHelp))));
+
+        register(new NodeDefinition(
                 "slack", "Slack",
                 "Posts a message to Slack through the connected Slack integration.",
                 NodeCategory.ACTION, "Hash", false, 1, List.of("out"),
@@ -1100,35 +1160,54 @@ public class NodeRegistry {
                                 "An email (SMTP) integration with Gmail credentials."))));
 
         register(new NodeDefinition(
-                "google_sheets", "Google Sheets",
-                "Appends a row to a Google Sheet via the Sheets API integration.",
+                "google_sheets_append_row", "Google Sheets Append Row",
+                "Appends a row to a Google Sheet.",
                 NodeCategory.ACTION, "Sheet", false, 1, List.of("out"),
                 List.of(
-                        ConfigField.text("spreadsheetId", "Spreadsheet id", true,
-                                "The id from the sheet's URL."),
-                        ConfigField.text("sheetName", "Sheet name", true,
-                                "The tab name, e.g. Sheet1."),
-                        ConfigField.json("row", "Row", true,
-                                "JSON array of cell values, or object keyed by column name."),
+                        ConfigField.text("spreadsheetId", "Spreadsheet ID", true, "The id from the sheet's URL."),
+                        ConfigField.json("row", "Row Data", true, "JSON array of cell values."),
                         ConfigField.text("integrationId", "Integration id", false, integrationHelp))));
 
         register(new NodeDefinition(
-                "github", "GitHub",
-                "Creates an issue or sets a commit status via the GitHub API.",
+                "linear_create_issue", "Linear Create Issue",
+                "Creates an issue in Linear through the connected integration.",
+                NodeCategory.ACTION, "Ticket", false, 1, List.of("out"),
+                List.of(
+                        ConfigField.text("title", "Title", true, "Issue title."),
+                        ConfigField.text("teamId", "Team ID", true, "Linear team ID."),
+                        ConfigField.multiline("description", "Description", false, ""),
+                        ConfigField.text("integrationId", "Integration id", false, integrationHelp))));
+
+        register(new NodeDefinition(
+                "github_create_issue", "GitHub Create Issue",
+                "Creates an issue in GitHub through the connected integration.",
                 NodeCategory.ACTION, "GitPullRequest", false, 1, List.of("out"),
                 List.of(
                         ConfigField.text("repo", "Repository", true, "owner/repo."),
-                        ConfigField.select("operation", "Operation", true,
-                                List.of("createIssue", "setCommitStatus")),
-                        ConfigField.text("title", "Title", false, "For createIssue."),
-                        ConfigField.multiline("body", "Body", false, "For createIssue."),
-                        ConfigField.text("commitSha", "Commit SHA", false, "For setCommitStatus."),
-                        ConfigField.select("state", "State", false,
-                                List.of("success", "failure", "pending", "error")),
-                        ConfigField.text("context", "Context", false,
-                                "For setCommitStatus."),
-                        ConfigField.text("integrationId", "Integration id", false,
-                                "A GitHub integration carrying a personal access token."))));
+                        ConfigField.text("title", "Title", true, "Issue title."),
+                        ConfigField.multiline("body", "Body", false, "Description."),
+                        ConfigField.text("integrationId", "Integration id", false, integrationHelp))));
+
+
+        register(new NodeDefinition(
+                "salesforce_create_lead", "Salesforce Create Lead",
+                "Creates a lead in Salesforce.",
+                NodeCategory.ACTION, "UserPlus", false, 1, List.of("out"),
+                List.of(
+                        ConfigField.text("lastName", "Last Name", true, "Lead last name."),
+                        ConfigField.text("company", "Company", true, "Company name."),
+                        ConfigField.text("integrationId", "Integration id", false, integrationHelp))));
+
+
+        register(new NodeDefinition(
+                "pagerduty_trigger_incident", "PagerDuty Trigger Incident",
+                "Triggers an incident in PagerDuty.",
+                NodeCategory.ACTION, "Alert", false, 1, List.of("out"),
+                List.of(
+                        ConfigField.text("serviceId", "Service ID", true, ""),
+                        ConfigField.text("title", "Title", true, ""),
+                        ConfigField.text("integrationId", "Integration id", false, integrationHelp))));
+
 
         register(new NodeDefinition(
                 "jira", "Jira",
@@ -1147,32 +1226,23 @@ public class NodeRegistry {
                                 "A Jira integration with email + API token."))));
 
         register(new NodeDefinition(
-                "notion", "Notion",
-                "Creates a page in a Notion database via the Notion API.",
+                "notion_create_page", "Notion Create Page",
+                "Creates a page in a Notion database.",
                 NodeCategory.ACTION, "NotebookPen", false, 1, List.of("out"),
                 List.of(
-                        ConfigField.text("databaseId", "Database id", true,
-                                "The parent database id."),
-                        ConfigField.json("properties", "Properties", true,
-                                "JSON object of page property values."),
-                        ConfigField.text("integrationId", "Integration id", false,
-                                "A Notion integration carrying an API token."))));
+                        ConfigField.text("databaseId", "Database ID", true, "Notion database ID."),
+                        ConfigField.text("integrationId", "Integration id", false, integrationHelp))));
 
         register(new NodeDefinition(
-                "outbound_webhook", "Outbound Webhook",
-                "Sends an HTTP request to a configured webhook endpoint.",
-                NodeCategory.ACTION, "Webhook", false, 1, List.of("out"),
+                "s3_upload", "S3 Upload",
+                "Uploads content to an AWS S3 bucket.",
+                NodeCategory.ACTION, "Upload", false, 1, List.of("out"),
                 List.of(
-                        ConfigField.text("url", "URL", true,
-                                "Supports {{variable}} interpolation."),
-                        ConfigField.select("method", "Method", true,
-                                List.of("POST", "PUT", "PATCH")),
-                        ConfigField.json("headers", "Headers", false,
-                                "JSON object of header name/value pairs."),
-                        ConfigField.multiline("body", "Body", false,
-                                "Supports {{variable}} interpolation."),
-                        ConfigField.text("integrationId", "Integration id", false,
-                                "Optional webhook integration for signed delivery."))));
+                        ConfigField.text("bucket", "Bucket Name", true, "AWS S3 bucket name."),
+                        ConfigField.text("key", "Key", true, "S3 object key."),
+                        ConfigField.multiline("content", "Content", true, "Content to upload."),
+                        ConfigField.text("integrationId", "Integration id", false, integrationHelp))));
+
     }
 
     private void registerReliability() {
