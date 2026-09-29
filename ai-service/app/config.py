@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.6-flash"
 
+    # OmniRoute (bring-your-own-key). Get a key at https://platform.openai.com/signup.
+    omniroute_api_key: str = ""
+    omniroute_base_url: str = "http://localhost:20128/v1"
+    omniroute_model: str = "auto/best-chat"
+
     # Per-request timeout (seconds) for provider calls.
     provider_timeout_seconds: float = 60.0
     # Upper bound on tool-calling rounds in /ai/agent/run, so a misbehaving model
@@ -42,17 +47,23 @@ class Settings(BaseSettings):
     # Allowed callers (the backend). Comma-separated origins.
     cors_origins: str = "http://localhost:8080"
 
+    
     @property
     def ai_configured(self) -> bool:
-        """True when the active provider has credentials. Never expose the key itself."""
-        if self.ai_provider.strip().lower() == "gemini":
+        """True when the active provider has credentials."""
+        provider = self.ai_provider.strip().lower()
+
+        if provider == "gemini":
             return bool(self.gemini_api_key.strip())
+
+        if provider == "omniroute":
+            return bool(self.omniroute_api_key.strip())
+
         return False
 
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
-
 
 @lru_cache
 def get_settings() -> Settings:

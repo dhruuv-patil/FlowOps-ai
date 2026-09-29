@@ -10,6 +10,7 @@ from functools import lru_cache
 from app.config import get_settings
 from app.providers.base import AgentResult, LLMProvider, ProviderError, ToolInvocation
 from app.providers.gemini import GeminiProvider
+from app.providers.omniroute import OmniRouteProvider
 
 __all__ = [
     "AgentResult",
@@ -21,9 +22,15 @@ __all__ = [
 
 
 @lru_cache
+@lru_cache
 def get_provider() -> LLMProvider:
-    """The active provider, chosen by ``AI_PROVIDER`` (default: gemini)."""
+    """The active provider, chosen by AI_PROVIDER."""
     name = get_settings().ai_provider.strip().lower()
+
     if name == "gemini":
         return GeminiProvider()
+
+    if name == "omniroute":
+        return OmniRouteProvider()
+
     raise ProviderError(f"Unknown AI provider: {name!r}")
