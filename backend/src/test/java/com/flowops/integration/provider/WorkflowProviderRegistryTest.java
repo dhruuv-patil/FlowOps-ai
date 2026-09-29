@@ -12,9 +12,9 @@ class WorkflowProviderRegistryTest {
     @Test
     void registryBuildsFromProviders() {
         WorkflowProvider provider = new TestProvider(IntegrationType.N8N);
-
+        IntegrationRegistry integrationRegistry = new IntegrationRegistry(List.of(provider));
         WorkflowProviderRegistry registry =
-                new WorkflowProviderRegistry(List.of(provider));
+                new WorkflowProviderRegistry(integrationRegistry);
 
         assertThat(registry.get(IntegrationType.N8N))
                 .isSameAs(provider);
@@ -29,7 +29,7 @@ class WorkflowProviderRegistryTest {
         WorkflowProvider second = new TestProvider(IntegrationType.N8N);
 
         assertThatThrownBy(() ->
-                new WorkflowProviderRegistry(List.of(first, second)))
+                new WorkflowProviderRegistry(new IntegrationRegistry(List.of(first, second))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Duplicate provider for type N8N");
     }
@@ -37,8 +37,8 @@ class WorkflowProviderRegistryTest {
     @Test
     void registryThrowsOnUnknownType() {
         WorkflowProviderRegistry registry =
-                new WorkflowProviderRegistry(List.of(
-                        new TestProvider(IntegrationType.N8N)));
+                new WorkflowProviderRegistry(new IntegrationRegistry(List.of(
+                        new TestProvider(IntegrationType.N8N))));
 
         assertThatThrownBy(() ->
                 registry.get(IntegrationType.SLACK))
@@ -49,8 +49,8 @@ class WorkflowProviderRegistryTest {
     @Test
     void registryThrowsOnUnknownWire() {
         WorkflowProviderRegistry registry =
-                new WorkflowProviderRegistry(List.of(
-                        new TestProvider(IntegrationType.N8N)));
+                new WorkflowProviderRegistry(new IntegrationRegistry(List.of(
+                        new TestProvider(IntegrationType.N8N))));
 
         assertThatThrownBy(() ->
                 registry.getByWire("unknown"))

@@ -30,12 +30,15 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 /**
- * Slice tests for {@link IntegrationService}, the connect/disconnect choke point.
+ * Slice tests for {@link IntegrationService}, the connect/disconnect choke
+ * point.
  *
- * <p>Repositories are mocked; a real {@link CredentialCipher} (known test key)
+ * <p>
+ * Repositories are mocked; a real {@link CredentialCipher} (known test key)
  * proves the encryption actually happens end-to-end.
  *
- * <p>The invariants under test are the security-critical ones: the plaintext
+ * <p>
+ * The invariants under test are the security-critical ones: the plaintext
  * webhook URL is encrypted before it reaches the DB and never appears in a
  * client response; a malformed or non-Slack URL is rejected before anything
  * is stored; another tenant's integration is indistinguishable from absent
@@ -43,292 +46,269 @@ import org.mockito.ArgumentCaptor;
  */
 class IntegrationServiceTest {
 
-    private static final String WEBHOOK_URL =
-            "https://example.com/test-webhook";
+        private static final String WEBHOOK_URL = "https://hooks.slack.com/services/T00000000/B00000000/abcdefghijklmnopqrstuvwxyz1234567890";
+        /*
+         * Mirrors the app's Spring-Boot-configured ObjectMapper.
+         */
+        private static final ObjectMapper MAPPER = new ObjectMapper().registerModule(new JavaTimeModule());
 
-    /*
-     * Mirrors the app's Spring-Boot-configured ObjectMapper.
-     */
-    private static final ObjectMapper MAPPER =
-            new ObjectMapper().registerModule(new JavaTimeModule());
-
-    /**
-     * The audit trail is exercised by its own test; here it only needs to
-     * accept calls.
-     */
-    private static com.flowops.audit.AuditService audit() {
-        return mock(com.flowops.audit.AuditService.class);
-    }
-
-    /**
-     * The provider registry is only consulted for provider-type connects;
-     * Slack tests never hit it.
-     */
-    private static WorkflowProviderRegistry registry() {
-        return mock(WorkflowProviderRegistry.class);
-    }
-
-    private static CredentialCipher cipher() {
-        byte[] raw = new byte[CryptoProperties.KEY_BYTES];
-
-        for (int i = 0; i < raw.length; i++) {
-            raw[i] = (byte) (i * 3 + 5);
+        /**
+         * The audit trail is exercised by its own test; here it only needs to
+         * accept calls.
+         */
+        private static com.flowops.audit.AuditService audit() {
+                return mock(com.flowops.audit.AuditService.class);
         }
 
-        return new CredentialCipher(
-                new CryptoProperties(
-                        Base64.getEncoder().encodeToString(raw)));
-    }
-
-    private FlowOpsPrincipal admin(UUID orgId) {
-        return new FlowOpsPrincipal(
-                UUID.randomUUID(),
-                UUID.randomUUID(),
-                orgId,
-                Role.ADMIN,
-                "admin@example.com");
-    }
-
-    @Test
-    void connectEncryptsTheUrlAndNeverReturnsPlaintext() throws Exception {
-        UUID orgId = UUID.randomUUID();
-
-        IntegrationRepository integrations =
-                mock(IntegrationRepository.class);
-
-        IntegrationCredentialRepository credentials =
-                mock(IntegrationCredentialRepository.class);
-
-        CredentialCipher cipher = cipher();
-
-        when(
-                integrations.findByOrganizationIdAndType(
-                        orgId,
-                        Integration.TYPE_SLACK))
-                .thenReturn(Optional.empty());
-
-        IntegrationService service =
-                new IntegrationService(
-                        integrations,
-                        credentials,
-                        cipher,
-                        audit(),
-                        registry());
-
-        IntegrationResponse response =
-                service.connect(
-                        admin(orgId),
-                        new ConnectIntegrationRequest(
-                                "slack",
-                                WEBHOOK_URL));
-
-        /*
-         * The stored credential is ciphertext — not the URL —
-         * and decrypts back to the expected credential map.
+        /**
+         * The provider registry is only consulted for provider-type connects;
+         * Slack tests never hit it.
          */
-        ArgumentCaptor<IntegrationCredential> saved =
-                ArgumentCaptor.forClass(
-                        IntegrationCredential.class);
+        private static WorkflowProviderRegistry registry() {
+                return mock(WorkflowProviderRegistry.class);
+        }
 
-        verify(credentials).save(saved.capture());
+        private static CredentialCipher cipher() {
+                byte[] raw = new byte[CryptoProperties.KEY_BYTES];
 
-        String ciphertext =
-                saved.getValue().getCiphertext();
+                for (int i = 0; i < raw.length; i++) {
+                        raw[i] = (byte) (i * 3 + 5);
+                }
 
-        assertThat(ciphertext)
-                .doesNotContain(WEBHOOK_URL);
+                return new CredentialCipher(
+                                new CryptoProperties(
+                                                Base64.getEncoder().encodeToString(raw)));
+        }
 
-        Map<String, String> decrypted =
-                cipher.decryptToMap(ciphertext);
+        private FlowOpsPrincipal admin(UUID orgId) {
+                return new FlowOpsPrincipal(
+                                UUID.randomUUID(),
+                                UUID.randomUUID(),
+                                orgId,
+                                Role.ADMIN,
+                                "admin@example.com");
+        }
 
-        assertThat(decrypted)
-                .containsEntry(
-                        "webhookUrl",
-                        WEBHOOK_URL);
+        @Test
+        void connectEncryptsTheUrlAndNeverReturnsPlaintext() throws Exception {
+                UUID orgId = UUID.randomUUID();
 
-        /*
-         * The response carries only the masked last-4,
-         * and its full JSON never leaks the URL.
-         */
-        assertThat(response.status())
-                .isEqualTo(
-                        Integration.STATUS_CONNECTED);
+                IntegrationRepository integrations = mock(IntegrationRepository.class);
 
-        assertThat(response.hint())
-                .isEqualTo("6789");
+                IntegrationCredentialRepository credentials = mock(IntegrationCredentialRepository.class);
 
-        String json =
-                MAPPER.writeValueAsString(response);
+                CredentialCipher cipher = cipher();
 
-        assertThat(json)
-                .doesNotContain(WEBHOOK_URL);
+                when(
+                                integrations.findByOrganizationIdAndType(
+                                                orgId,
+                                                Integration.TYPE_SLACK))
+                                .thenReturn(Optional.empty());
 
-        assertThat(json)
-                .doesNotContain("hooks.slack.com");
-    }
+                IntegrationService service = new IntegrationService(
+                                integrations,
+                                credentials,
+                                cipher,
+                                audit(),
+                                registry());
 
-    @Test
-    void connectRejectsANonSlackUrlBeforeStoringAnything() {
-        UUID orgId = UUID.randomUUID();
+                IntegrationResponse response = service.connect(
+                                admin(orgId),
+                                new ConnectIntegrationRequest(
+                                                "slack",
+                                                WEBHOOK_URL));
 
-        IntegrationRepository integrations =
-                mock(IntegrationRepository.class);
+                /*
+                 * The stored credential is ciphertext — not the URL —
+                 * and decrypts back to the expected credential map.
+                 */
+                ArgumentCaptor<IntegrationCredential> saved = ArgumentCaptor.forClass(
+                                IntegrationCredential.class);
 
-        IntegrationCredentialRepository credentials =
-                mock(IntegrationCredentialRepository.class);
+                verify(credentials).save(saved.capture());
 
-        IntegrationService service =
-                new IntegrationService(
-                        integrations,
-                        credentials,
-                        cipher(),
-                        audit(),
-                        registry());
+                String ciphertext = saved.getValue().getCiphertext();
 
-        assertThatThrownBy(
-                () -> service.connect(
-                        admin(orgId),
-                        new ConnectIntegrationRequest(
-                                "slack",
-                                "https://evil.example.com/x")))
-                .isInstanceOf(ApiException.class)
-                .extracting(
-                        ex -> ((ApiException) ex).code())
-                .isEqualTo(
-                        ErrorCode.INTEGRATION_INVALID);
+                assertThat(ciphertext)
+                                .doesNotContain(WEBHOOK_URL);
 
-        verify(integrations, never()).save(any());
+                Map<String, String> decrypted = cipher.decryptToMap(ciphertext);
 
-        verify(credentials, never()).save(any());
-    }
+                assertThat(decrypted)
+                                .containsEntry(
+                                                "webhookUrl",
+                                                WEBHOOK_URL);
 
-    @Test
-    void connectRejectsAMalformedUrl() {
-        UUID orgId = UUID.randomUUID();
+                /*
+                 * The response carries only the masked last-4,
+                 * and its full JSON never leaks the URL.
+                 */
+                assertThat(response.status())
+                                .isEqualTo(
+                                                Integration.STATUS_CONNECTED);
 
-        IntegrationService service =
-                new IntegrationService(
-                        mock(IntegrationRepository.class),
-                        mock(IntegrationCredentialRepository.class),
-                        cipher(),
-                        audit(),
-                        registry());
+                assertThat(response.hint()).isEqualTo("7890");
 
-        assertThatThrownBy(
-                () -> service.connect(
-                        admin(orgId),
-                        new ConnectIntegrationRequest(
-                                "slack",
-                                "h ttp://not a url")))
-                .isInstanceOf(ApiException.class)
-                .extracting(
-                        ex -> ((ApiException) ex).code())
-                .isEqualTo(
-                        ErrorCode.INTEGRATION_INVALID);
-    }
+                String json = MAPPER.writeValueAsString(response);
 
-    @Test
-    void connectRejectsAnUnsupportedType() {
-        UUID orgId = UUID.randomUUID();
+                assertThat(json)
+                                .doesNotContain(WEBHOOK_URL);
 
-        IntegrationService service =
-                new IntegrationService(
-                        mock(IntegrationRepository.class),
-                        mock(IntegrationCredentialRepository.class),
-                        cipher(),
-                        audit(),
-                        registry());
+                assertThat(json)
+                                .doesNotContain("hooks.slack.com");
+        }
 
-        assertThatThrownBy(
-                () -> service.connect(
-                        admin(orgId),
-                        new ConnectIntegrationRequest(
-                                "email",
-                                WEBHOOK_URL)))
-                .isInstanceOf(ApiException.class)
-                .extracting(
-                        ex -> ((ApiException) ex).code())
-                .isEqualTo(
-                        ErrorCode.VALIDATION_ERROR);
-    }
+        @Test
+        void connectRejectsANonSlackUrlBeforeStoringAnything() {
+                UUID orgId = UUID.randomUUID();
 
-    @Test
-    void getUnknownOrCrossTenantIntegrationIsNotFound() {
-        UUID orgId = UUID.randomUUID();
+                IntegrationRepository integrations = mock(IntegrationRepository.class);
 
-        IntegrationRepository integrations =
-                mock(IntegrationRepository.class);
+                IntegrationCredentialRepository credentials = mock(IntegrationCredentialRepository.class);
 
-        when(
-                integrations.findByIdAndOrganizationId(
-                        any(),
-                        any()))
-                .thenReturn(Optional.empty());
+                IntegrationService service = new IntegrationService(
+                                integrations,
+                                credentials,
+                                cipher(),
+                                audit(),
+                                registry());
 
-        IntegrationService service =
-                new IntegrationService(
-                        integrations,
-                        mock(IntegrationCredentialRepository.class),
-                        cipher(),
-                        audit(),
-                        registry());
+                assertThatThrownBy(
+                                () -> service.connect(
+                                                admin(orgId),
+                                                new ConnectIntegrationRequest(
+                                                                "slack",
+                                                                "https://evil.example.com/x")))
+                                .isInstanceOf(ApiException.class)
+                                .extracting(
+                                                ex -> ((ApiException) ex).code())
+                                .isEqualTo(
+                                                ErrorCode.INTEGRATION_INVALID);
 
-        assertThatThrownBy(
-                () -> service.get(
-                        admin(orgId),
-                        UUID.randomUUID()))
-                .isInstanceOf(ApiException.class)
-                .extracting(
-                        ex -> ((ApiException) ex).code())
-                .isEqualTo(
-                        ErrorCode.INTEGRATION_NOT_FOUND);
-    }
+                verify(integrations, never()).save(any());
 
-    @Test
-    void disconnectFlipsStatusAndDestroysTheStoredSecret() {
-        UUID orgId = UUID.randomUUID();
+                verify(credentials, never()).save(any());
+        }
 
-        Integration integration =
-                Integration.createConnected(
-                        orgId,
-                        UUID.randomUUID(),
-                        Integration.TYPE_SLACK,
-                        "Slack",
-                        "6789");
+        @Test
+        void connectRejectsAMalformedUrl() {
+                UUID orgId = UUID.randomUUID();
 
-        IntegrationRepository integrations =
-                mock(IntegrationRepository.class);
+                IntegrationService service = new IntegrationService(
+                                mock(IntegrationRepository.class),
+                                mock(IntegrationCredentialRepository.class),
+                                cipher(),
+                                audit(),
+                                registry());
 
-        IntegrationCredentialRepository credentials =
-                mock(IntegrationCredentialRepository.class);
+                assertThatThrownBy(
+                                () -> service.connect(
+                                                admin(orgId),
+                                                new ConnectIntegrationRequest(
+                                                                "slack",
+                                                                "h ttp://not a url")))
+                                .isInstanceOf(ApiException.class)
+                                .extracting(
+                                                ex -> ((ApiException) ex).code())
+                                .isEqualTo(
+                                                ErrorCode.INTEGRATION_INVALID);
+        }
 
-        when(
-                integrations.findByIdAndOrganizationId(
-                        integration.getId(),
-                        orgId))
-                .thenReturn(Optional.of(integration));
+        @Test
+        void connectRejectsAnUnsupportedType() {
+                UUID orgId = UUID.randomUUID();
 
-        IntegrationService service =
-                new IntegrationService(
-                        integrations,
-                        credentials,
-                        cipher(),
-                        audit(),
-                        registry());
+                IntegrationService service = new IntegrationService(
+                                mock(IntegrationRepository.class),
+                                mock(IntegrationCredentialRepository.class),
+                                cipher(),
+                                audit(),
+                                registry());
 
-        service.disconnect(
-                admin(orgId),
-                integration.getId());
+                assertThatThrownBy(
+                                () -> service.connect(
+                                                admin(orgId),
+                                                new ConnectIntegrationRequest(
+                                                                "email",
+                                                                WEBHOOK_URL)))
+                                .isInstanceOf(ApiException.class)
+                                .extracting(
+                                                ex -> ((ApiException) ex).code())
+                                .isEqualTo(
+                                                ErrorCode.VALIDATION_ERROR);
+        }
 
-        assertThat(integration.getStatus())
-                .isEqualTo(
-                        Integration.STATUS_DISCONNECTED);
+        @Test
+        void getUnknownOrCrossTenantIntegrationIsNotFound() {
+                UUID orgId = UUID.randomUUID();
 
-        assertThat(integration.getHint())
-                .isNull();
+                IntegrationRepository integrations = mock(IntegrationRepository.class);
 
-        verify(credentials)
-                .deleteByIntegrationId(
-                        integration.getId());
-    }
+                when(
+                                integrations.findByIdAndOrganizationId(
+                                                any(),
+                                                any()))
+                                .thenReturn(Optional.empty());
+
+                IntegrationService service = new IntegrationService(
+                                integrations,
+                                mock(IntegrationCredentialRepository.class),
+                                cipher(),
+                                audit(),
+                                registry());
+
+                assertThatThrownBy(
+                                () -> service.get(
+                                                admin(orgId),
+                                                UUID.randomUUID()))
+                                .isInstanceOf(ApiException.class)
+                                .extracting(
+                                                ex -> ((ApiException) ex).code())
+                                .isEqualTo(
+                                                ErrorCode.INTEGRATION_NOT_FOUND);
+        }
+
+        @Test
+        void disconnectFlipsStatusAndDestroysTheStoredSecret() {
+                UUID orgId = UUID.randomUUID();
+
+                Integration integration = Integration.createConnected(
+                                orgId,
+                                UUID.randomUUID(),
+                                Integration.TYPE_SLACK,
+                                "Slack",
+                                "6789");
+
+                IntegrationRepository integrations = mock(IntegrationRepository.class);
+
+                IntegrationCredentialRepository credentials = mock(IntegrationCredentialRepository.class);
+
+                when(
+                                integrations.findByIdAndOrganizationId(
+                                                integration.getId(),
+                                                orgId))
+                                .thenReturn(Optional.of(integration));
+
+                IntegrationService service = new IntegrationService(
+                                integrations,
+                                credentials,
+                                cipher(),
+                                audit(),
+                                registry());
+
+                service.disconnect(
+                                admin(orgId),
+                                integration.getId());
+
+                assertThat(integration.getStatus())
+                                .isEqualTo(
+                                                Integration.STATUS_DISCONNECTED);
+
+                assertThat(integration.getHint())
+                                .isNull();
+
+                verify(credentials)
+                                .deleteByIntegrationId(
+                                                integration.getId());
+        }
 }

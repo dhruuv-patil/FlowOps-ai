@@ -75,6 +75,9 @@ class ReliabilityServiceTest {
     @Mock
     private AiServiceClient aiClient;
 
+    @Mock
+    private RecoveryVerificationService recoveryService;
+
     private ReliabilityService service;
 
     @BeforeEach
@@ -84,7 +87,7 @@ class ReliabilityServiceTest {
                         MEMBER,
                         null,
                         List.of()));
-        
+
         service =
                 new ReliabilityService(
                         anomalies,
@@ -93,7 +96,8 @@ class ReliabilityServiceTest {
                         workflows,
                         integrationWorkflows,
                         executions,
-                        aiClient);
+                        aiClient,
+                        recoveryService);
     }
 
     @AfterEach

@@ -77,7 +77,7 @@ class ExecutorsTest {
                 stubProvider(IntegrationType.EMAIL, "Email (SMTP)");
 
         return new NotificationExecutor(
-                new NotificationProviderRegistry(List.of(slack, email)));
+                new NotificationProviderRegistry(new com.flowops.integration.provider.IntegrationRegistry(List.of(slack, email))));
     }
 
     private static NotificationProvider stubProvider(
