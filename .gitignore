@@ -64,3 +64,4 @@ frontend/components/brand/Executive Summary.pdf
 smtp-tls-test/
 # Machine-specific Claude Code tooling config
 .claude/
+.env.example
