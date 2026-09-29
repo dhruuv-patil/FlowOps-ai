@@ -16,7 +16,7 @@ import java.util.List;
  * beyond this boundary — return the normalized {@link ExternalWorkflow},
  * {@link ExternalExecution}, and {@link ExternalNodeExecution} records.
  */
-public interface WorkflowProvider {
+public interface WorkflowProvider extends IntegrationProvider {
 
     /** Stable lowercase identifier (e.g. "n8n", "make", "zapier"). */
     IntegrationType type();

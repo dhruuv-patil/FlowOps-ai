@@ -191,33 +191,27 @@ public class IntegrationService {
                 : type;
     }
 
-    private String validateSlackWebhookUrl(
-            String webhookUrl) {
+    private String validateSlackWebhookUrl(String webhookUrl) {
+    URI uri;
 
-        URI uri;
-
-        try {
-            uri = new URI(webhookUrl);
-        } catch (URISyntaxException notAUri) {
-            throw new ApiException(
-                    ErrorCode.INTEGRATION_INVALID);
-        }
-
-        boolean valid =
-                "https".equalsIgnoreCase(uri.getScheme())
-                        && SLACK_HOST.equalsIgnoreCase(uri.getHost())
-                        && uri.getRawPath() != null
-                        && uri.getRawPath()
-                                .startsWith(SLACK_PATH_PREFIX);
-
-        if (!valid) {
-            throw new ApiException(
-                    ErrorCode.INTEGRATION_INVALID);
-        }
-
-        return webhookUrl;
+    try {
+        uri = new URI(webhookUrl);
+    } catch (URISyntaxException notAUri) {
+        throw new ApiException(ErrorCode.INTEGRATION_INVALID);
     }
 
+    boolean valid =
+            "https".equalsIgnoreCase(uri.getScheme())
+                    && SLACK_HOST.equalsIgnoreCase(uri.getHost())
+                    && uri.getRawPath() != null
+                    && uri.getRawPath().startsWith(SLACK_PATH_PREFIX);
+
+    if (!valid) {
+        throw new ApiException(ErrorCode.INTEGRATION_INVALID);
+    }
+
+    return webhookUrl;
+}
     private String lastFour(String value) {
         return value.length() <= 4
                 ? value

@@ -14,6 +14,7 @@ import com.flowops.integration.delivery.NotificationProviderRegistry;
 import com.flowops.integration.provider.CredentialField;
 import com.flowops.integration.provider.DecryptedCredentials;
 import com.flowops.integration.provider.IntegrationContext;
+import com.flowops.integration.provider.IntegrationRegistry;
 import com.flowops.integration.provider.IntegrationType;
 import com.flowops.integration.provider.ProviderCapabilities;
 import com.flowops.integration.provider.WorkflowProvider;
@@ -65,16 +66,19 @@ public class ProviderController {
     private final WorkflowProviderRegistry workflowProviders;
     private final NotificationProviderRegistry notificationProviders;
     private final CredentialCipher cipher;
+    private final com.flowops.integration.provider.IntegrationRegistry registry;
 
     public ProviderController(
             IntegrationService integrationService,
             WorkflowProviderRegistry workflowProviders,
             NotificationProviderRegistry notificationProviders,
-            CredentialCipher cipher) {
+            CredentialCipher cipher,
+            com.flowops.integration.provider.IntegrationRegistry registry) {
         this.integrationService = integrationService;
         this.workflowProviders = workflowProviders;
         this.notificationProviders = notificationProviders;
         this.cipher = cipher;
+        this.registry = registry;
     }
 
     @GetMapping("/providers")
@@ -82,28 +86,16 @@ public class ProviderController {
     public ProvidersResponse listProviders() {
         List<ProviderInfo> infos = new ArrayList<>();
 
-        for (WorkflowProvider provider : workflowProviders.all()) {
+        for (var provider : registry.all()) {
+            ProviderCapabilities capabilities = provider instanceof WorkflowProvider workflow
+                    ? workflow.capabilities()
+                    : new ProviderCapabilities(false, false, false, false, false, false);
             infos.add(new ProviderInfo(
                     provider.type().wire(),
                     provider.displayName(),
                     provider.description(),
                     true,
-                    provider.capabilities(),
-                    provider.credentialFields()));
-        }
-
-        // Delivery channels advertise webhook-style delivery; the rest of their
-        // capability flags are irrelevant to a notification channel.
-        ProviderCapabilities deliveryCapabilities = new ProviderCapabilities(
-                false, false, false, false, true, false);
-
-        for (NotificationProvider provider : notificationProviders.all()) {
-            infos.add(new ProviderInfo(
-                    provider.type().wire(),
-                    provider.displayName(),
-                    provider.description(),
-                    true,
-                    deliveryCapabilities,
+                    capabilities,
                     provider.credentialFields()));
         }
 
@@ -133,6 +125,7 @@ public class ProviderController {
                     "Use the Slack-specific connect endpoint");
         }
 
+        registry.require(request.type()).validateCredentialFields(request.config());
         DecryptedCredentials credentials = new DecryptedCredentials(request.config());
 
         if (notificationProviders.supports(type)) {

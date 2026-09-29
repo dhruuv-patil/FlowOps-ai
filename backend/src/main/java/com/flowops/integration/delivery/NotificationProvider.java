@@ -3,6 +3,7 @@ package com.flowops.integration.delivery;
 import com.flowops.integration.provider.ConnectionTestResult;
 import com.flowops.integration.provider.CredentialField;
 import com.flowops.integration.provider.IntegrationType;
+import com.flowops.integration.provider.ProviderCapabilities;
 import java.util.List;
 
 /**
@@ -18,10 +19,14 @@ import java.util.List;
  * operation, duration, status, http status, retry count, error type), so call
  * latency behaves like any other reliability signal.
  */
-public interface NotificationProvider {
+public interface NotificationProvider extends com.flowops.integration.provider.IntegrationProvider {
 
-    /** Stable lowercase identifier (e.g. "slack", "email", "webhook"). */
-    IntegrationType type();
+    @Override
+    default ProviderCapabilities capabilities() {
+        // Delivery channels advertise webhook-style delivery.
+        return new ProviderCapabilities(false, false, false, false, true, false);
+    }
+
 
     /** Human-readable display name ("Slack", "Email (SMTP)", ...). */
     String displayName();

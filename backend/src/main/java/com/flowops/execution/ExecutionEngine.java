@@ -629,14 +629,27 @@ public class ExecutionEngine {
             "discord",
             "teams",
             "email",
+            "telegram",
+            "twilio",
             "gmail",
             "google_sheets",
+            "google_sheets_append_row",
             "github",
+            "github_create_issue",
             "jira",
             "notion",
+            "notion_create_page",
+            "linear_create_issue",
+            "salesforce_create_lead",
+            "pagerduty_trigger_incident",
+            "s3_upload",
+            "hubspot",
+            "stripe",
+            "openai",
             "outbound_webhook",
             "incident_creator",
-            "escalation");
+            "escalation",
+            "http_request");
 
     private Map<String, String> resolveSecrets(
             WorkflowExecution execution,
@@ -647,14 +660,14 @@ public class ExecutionEngine {
         }
 
         Object rawChannel = node.config().get("channel");
-
-        String channel = rawChannel == null
-                ? ""
-                : String.valueOf(rawChannel).strip();
-
+        String channel = rawChannel != null ? String.valueOf(rawChannel).strip() : "";
         IntegrationType type = IntegrationType.fromWire(channel);
 
         if (type == null) {
+            type = determineIntegrationTypeFromNode(node.type());
+        }
+
+        if (type == null && !"http_request".equals(node.type()) && !"outbound_webhook".equals(node.type())) {
             return Map.of();
         }
 
@@ -719,6 +732,16 @@ public class ExecutionEngine {
          * cipher.decrypt(), which would return the whole JSON document as
          * a String and cause the HTTP client to interpret the JSON as a URL.
          */
+        /*
+         * Backward-compatible Slack fallback.
+         *
+         * New Slack connections are encrypted as a JSON map:
+         * {"webhookUrl":"https://hooks.slack.com/..."}
+         *
+         * Therefore we must decrypt using decryptToMap(), rather than
+         * cipher.decrypt(), which would return the whole JSON document as
+         * a String and cause the HTTP client to interpret the JSON as a URL.
+         */
         if (type == IntegrationType.SLACK) {
             Optional<IntegrationCredential> credential = store.findConnectedSlackCredential(
                     organizationId);
@@ -740,26 +763,50 @@ public class ExecutionEngine {
         return Map.of();
     }
 
+    private IntegrationType determineIntegrationTypeFromNode(String nodeType) {
+        if (nodeType == null) return null;
+
+        if (nodeType.startsWith("slack")) return IntegrationType.SLACK;
+        if (nodeType.startsWith("discord")) return IntegrationType.DISCORD;
+        if (nodeType.startsWith("teams")) return IntegrationType.TEAMS;
+        if (nodeType.startsWith("telegram")) return IntegrationType.TELEGRAM;
+        if (nodeType.startsWith("twilio")) return IntegrationType.TWILIO;
+        if (nodeType.startsWith("email")) return IntegrationType.EMAIL;
+        if (nodeType.startsWith("gmail")) return IntegrationType.EMAIL;
+        if (nodeType.startsWith("google_sheets")) return IntegrationType.GOOGLE_SHEETS;
+        if (nodeType.startsWith("github")) return IntegrationType.GITHUB;
+        if (nodeType.startsWith("jira")) return IntegrationType.JIRA;
+        if (nodeType.startsWith("notion")) return IntegrationType.NOTION;
+        if (nodeType.startsWith("linear")) return IntegrationType.LINEAR;
+        if (nodeType.startsWith("salesforce")) return IntegrationType.SALESFORCE;
+        if (nodeType.startsWith("pagerduty")) return IntegrationType.PAGERDUTY;
+        if (nodeType.startsWith("s3")) return IntegrationType.S3;
+        if (nodeType.startsWith("hubspot")) return IntegrationType.HUBSPOT;
+        if (nodeType.startsWith("stripe")) return IntegrationType.STRIPE;
+        if (nodeType.startsWith("openai")) return IntegrationType.OPENAI;
+        return null;
+    }
+
     private Map<String, String> decryptCredentials(
-            IntegrationType type,
-            String ciphertext) {
+        IntegrationType type,
+        String ciphertext) {
 
-        Map<String, String> decrypted = cipher.decryptToMap(ciphertext);
+    Map<String, String> decrypted = cipher.decryptToMap(ciphertext);
 
-        if (decrypted == null || decrypted.isEmpty()) {
-            return Map.of();
-        }
-
-        return decrypted;
+    if (decrypted == null || decrypted.isEmpty()) {
+        return Map.of();
     }
 
-    private static final class SecretResolutionException
-            extends RuntimeException {
+    return decrypted;
+}
 
-        SecretResolutionException(String message) {
-            super(message);
-        }
+private static final class SecretResolutionException
+        extends RuntimeException {
+
+    SecretResolutionException(String message) {
+        super(message);
     }
+}
 
     private void succeed(
             WorkflowExecution execution,

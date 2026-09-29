@@ -1,44 +1,63 @@
 package com.flowops.integration.provider;
 
 /**
- * Supported integration types. Wire values are lowercase stable identifiers
- * (stored in {@code integrations.type} and {@code execution_events.source}).
- * New providers are added here and a corresponding {@link WorkflowProvider}
- * bean; the registry auto-registers them.
+ * Stable wire identifiers for existing integrations. An enum entry is not a
+ * capability claim: only registered provider beans appear in the catalog.
  */
 public enum IntegrationType {
-
-    /** Slack incoming-webhook delivery (notification provider). */
     SLACK("slack"),
-
-    /** Email (SMTP) delivery — generic SMTP, covers Gmail/Outlook/custom. */
     EMAIL("email"),
-
-    /** Discord incoming-webhook delivery (notification provider). */
     DISCORD("discord"),
-
-    /** Microsoft Teams incoming-webhook delivery (notification provider). */
     TEAMS("teams"),
-
-    /** Outbound HTTP webhook delivery + event dispatch. */
     WEBHOOK("webhook"),
-
-    /** n8n workflow automation. */
     N8N("n8n"),
-
-    /** Make (formerly Integromat) workflow automation. */
     MAKE("make"),
-
-    /** Zapier workflow automation (webhook connect; no public run-history API). */
     ZAPIER("zapier"),
-
-    /** GitHub Actions workflow automation + reliability telemetry. */
     GITHUB("github"),
-
-    /** Temporal workflow orchestration. */
     TEMPORAL("temporal"),
-
-    /** Generic/custom HTTP-based provider. */
+    REST_API("rest_api"),
+    TELEGRAM("telegram"),
+    TWILIO("twilio"),
+    SENDGRID("sendgrid"),
+    RESEND("resend"),
+    HUBSPOT("hubspot"),
+    STRIPE("stripe"),
+    OPENAI("openai"),
+    ANTHROPIC("anthropic"),
+    LINEAR("linear"),
+    JIRA("jira"),
+    SENTRY("sentry"),
+    PAGERDUTY("pagerduty"),
+    GITLAB("gitlab"),
+    BITBUCKET("bitbucket"),
+    POSTGRESQL("postgresql"),
+    MYSQL("mysql"),
+    MONGODB("mongodb"),
+    REDIS("redis"),
+    AWS("aws"),
+    GCP("gcp"),
+    AZURE("azure"),
+    CLOUDFLARE("cloudflare"),
+    VERCEL("vercel"),
+    DIGITALOCEAN("digitalocean"),
+    S3("s3"),
+    GCS("gcs"),
+    DRIVE("drive"),
+    DROPBOX("dropbox"),
+    ONEDRIVE("onedrive"),
+    BOX("box"),
+    SALESFORCE("salesforce"),
+    PIPEDRIVE("pipedrive"),
+    ZOHO_CRM("zoho_crm"),
+    NOTION("notion"),
+    ASANA("asana"),
+    TRELLO("trello"),
+    CLICKUP("clickup"),
+    MONDAY("monday"),
+    GOOGLE_SHEETS("google_sheets"),
+    GOOGLE_DOCS("google_docs"),
+    GOOGLE_CALENDAR("google_calendar"),
+    AIRTABLE("airtable"),
     CUSTOM("custom");
 
     private final String wire;
@@ -47,19 +66,17 @@ public enum IntegrationType {
         this.wire = wire;
     }
 
-    /** The value stored in the database and used in API contracts. */
     public String wire() {
         return wire;
     }
 
-    /** Lookup by wire value (case-insensitive). */
     public static IntegrationType fromWire(String wire) {
         if (wire == null) {
             return null;
         }
-        for (IntegrationType t : values()) {
-            if (t.wire.equalsIgnoreCase(wire)) {
-                return t;
+        for (IntegrationType type : values()) {
+            if (type.wire.equalsIgnoreCase(wire)) {
+                return type;
             }
         }
         return null;

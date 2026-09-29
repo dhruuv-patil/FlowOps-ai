@@ -1,9 +1,8 @@
 package com.flowops.integration.delivery;
 
+import com.flowops.integration.provider.IntegrationRegistry;
 import com.flowops.integration.provider.IntegrationType;
 import java.util.List;
-import java.util.Map;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 
@@ -16,21 +15,20 @@ import org.springframework.stereotype.Service;
 @Service
 public class NotificationProviderRegistry {
 
-    private final Map<IntegrationType, NotificationProvider> providers;
+    private final IntegrationRegistry registry;
 
-    public NotificationProviderRegistry(List<NotificationProvider> providerList) {
-        this.providers = providerList.stream().collect(Collectors.toMap(
-                NotificationProvider::type,
-                Function.identity(),
-                (a, b) -> {
-                    throw new IllegalStateException(
-                            "Duplicate delivery provider for type " + a.type());
-                }));
+    public NotificationProviderRegistry(IntegrationRegistry registry) {
+        this.registry = registry;
     }
 
     /** True when a delivery provider is registered for the type. */
     public boolean supports(IntegrationType type) {
-        return type != null && providers.containsKey(type);
+        if (type == null) return false;
+        try {
+            return registry.get(type) instanceof NotificationProvider;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /** True when a delivery provider is registered for the wire string. */
@@ -40,26 +38,20 @@ public class NotificationProviderRegistry {
 
     /** Returns the delivery provider for the type. */
     public NotificationProvider get(IntegrationType type) {
-        NotificationProvider provider = providers.get(type);
-        if (provider == null) {
-            throw new IllegalArgumentException(
-                    "No delivery provider registered for type: "
-                            + (type == null ? "null" : type.wire()));
-        }
-        return provider;
+        return registry.get(type, NotificationProvider.class);
     }
 
     /** Returns the provider for a wire string (e.g. "slack"). */
     public NotificationProvider getByWire(String wire) {
         IntegrationType type = IntegrationType.fromWire(wire);
-        if (type == null || !providers.containsKey(type)) {
-            throw new IllegalArgumentException("Unknown delivery provider: " + wire);
-        }
         return get(type);
     }
 
     /** All registered delivery providers (notifications section of the catalog). */
     public List<NotificationProvider> all() {
-        return List.copyOf(providers.values());
+        return registry.all().stream()
+                .filter(p -> p instanceof NotificationProvider)
+                .map(p -> (NotificationProvider) p)
+                .collect(Collectors.toList());
     }
 }

@@ -30,8 +30,14 @@ public class OutboundWebhookExecutor implements NodeExecutor {
         String interpolatedBody = body != null ? ctx.interpolate(body) : "";
         java.util.Map<String, Object> headers = asMap(ctx, rawHeaders);
 
+        java.net.URI uri;
         try {
-            java.net.URI uri = java.net.URI.create(interpolatedUrl);
+            uri = com.flowops.common.security.SsrfGuard.validate(interpolatedUrl);
+        } catch (IllegalArgumentException | com.flowops.common.error.ApiException blocked) {
+            return NodeResult.fail("Outbound Webhook target rejected: " + blocked.getMessage());
+        }
+
+        try {
             java.net.http.HttpClient client = java.net.http.HttpClient.newHttpClient();
             java.net.http.HttpRequest.Builder request = java.net.http.HttpRequest.newBuilder()
                     .uri(uri)

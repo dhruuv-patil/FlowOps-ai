@@ -27,6 +27,12 @@ public record DecryptedCredentials(Map<String, String> secrets) {
         if (secrets == null) {
             throw new IllegalArgumentException("Credentials map cannot be null");
         }
+        secrets = Map.copyOf(secrets);
+    }
+
+    @Override
+    public String toString() {
+        return "DecryptedCredentials[redacted]";
     }
 
     /** Returns the secret for a key, or null if not present. */

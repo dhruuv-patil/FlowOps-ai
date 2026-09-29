@@ -1,8 +1,6 @@
 package com.flowops.integration.provider;
 
 import java.util.List;
-import java.util.Map;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 
@@ -13,17 +11,10 @@ import org.springframework.stereotype.Service;
 @Service
 public class WorkflowProviderRegistry {
 
-    private final Map<IntegrationType, WorkflowProvider> providers;
+    private final IntegrationRegistry registry;
 
-    public WorkflowProviderRegistry(List<WorkflowProvider> providerList) {
-        this.providers = providerList.stream()
-                .collect(Collectors.toMap(
-                        WorkflowProvider::type,
-                        Function.identity(),
-                        (a, b) -> {
-                            throw new IllegalStateException(
-                                    "Duplicate provider for type " + a.type());
-                        }));
+    public WorkflowProviderRegistry(IntegrationRegistry registry) {
+        this.registry = registry;
     }
 
     /**
@@ -32,17 +23,15 @@ public class WorkflowProviderRegistry {
      * @throws ProviderConfigurationException if no provider is registered for the type
      */
     public WorkflowProvider get(IntegrationType type) {
-        WorkflowProvider provider = providers.get(type);
-        if (provider == null) {
-            throw new ProviderConfigurationException(type,
-                    "No provider registered for type: " + type.wire());
-        }
-        return provider;
+        return registry.get(type, WorkflowProvider.class);
     }
 
     /** Returns all registered providers (for the catalog UI). */
     public List<WorkflowProvider> all() {
-        return List.copyOf(providers.values());
+        return registry.all().stream()
+                .filter(p -> p instanceof WorkflowProvider)
+                .map(p -> (WorkflowProvider) p)
+                .collect(Collectors.toList());
     }
 
     /** Returns the provider for the wire type string. */

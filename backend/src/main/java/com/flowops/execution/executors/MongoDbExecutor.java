@@ -23,8 +23,8 @@ public class MongoDbExecutor implements NodeExecutor {
         String database = ctx.configString("database");
         String collection = ctx.configString("collection");
         String operation = ctx.configString("operation");
-        String filterStr = ctx.configString("filter");
-        String documentStr = ctx.configString("document");
+        JsonNode filterNode = ctx.mapper().valueToTree(ctx.config().get("filter"));
+        JsonNode documentNode = ctx.mapper().valueToTree(ctx.config().get("document"));
         String limitStr = ctx.configString("limit");
 
         if (uri == null || uri.isBlank()) return NodeResult.fail("MongoDB requires 'uri'.");
@@ -44,7 +44,6 @@ public class MongoDbExecutor implements NodeExecutor {
             Class<?> mongoDatabaseClass = Class.forName("com.mongodb.client.MongoDatabase");
             Class<?> mongoCollectionClass = Class.forName("com.mongodb.client.MongoCollection");
             Class<?> documentClass = Class.forName("org.bson.Document");
-            Class<?> filtersClass = Class.forName("com.mongodb.client.model.Filters");
 
             Object client = mongoClientClass.getMethod("create", String.class).invoke(null, ctx.interpolate(uri));
             Object db = mongoClientInterface.getMethod("getDatabase", String.class).invoke(client, database);
@@ -52,15 +51,15 @@ public class MongoDbExecutor implements NodeExecutor {
 
             if ("find".equalsIgnoreCase(operation)) {
                 Object query = documentClass.getConstructor().newInstance();
-                if (filterStr != null && !filterStr.isBlank()) {
-                    String interpolatedFilter = ctx.interpolate(filterStr);
-                    query = documentClass.getMethod("parse", String.class).invoke(null, interpolatedFilter);
+                if (filterNode != null && !filterNode.isNull()) {
+                    query = documentClass.getMethod("parse", String.class).invoke(null, ctx.interpolate(filterNode.toString()));
                 }
 
                 Object findIterable = mongoCollectionClass.getMethod("find", Object.class).invoke(coll, query);
                 if (limit > 0) {
                     findIterable = findIterable.getClass().getMethod("limit", int.class).invoke(findIterable, limit);
                 }
+
 
                 ArrayNode rows = ctx.mapper().createArrayNode();
                 for (Object doc : (Iterable<?>) findIterable) {
@@ -83,9 +82,8 @@ public class MongoDbExecutor implements NodeExecutor {
 
             } else if ("insertOne".equalsIgnoreCase(operation)) {
                 Object doc = documentClass.getConstructor().newInstance();
-                if (documentStr != null && !documentStr.isBlank()) {
-                    String interpolatedDoc = ctx.interpolate(documentStr);
-                    doc = documentClass.getMethod("parse", String.class).invoke(null, interpolatedDoc);
+                if (documentNode != null && !documentNode.isNull()) {
+                    doc = documentClass.getMethod("parse", String.class).invoke(null, ctx.interpolate(documentNode.toString()));
                 }
 
                 mongoCollectionClass.getMethod("insertOne", documentClass).invoke(coll, doc);

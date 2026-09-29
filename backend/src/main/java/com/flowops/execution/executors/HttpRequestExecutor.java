@@ -58,12 +58,9 @@ public class HttpRequestExecutor implements NodeExecutor {
 
         URI uri;
         try {
-            uri = URI.create(url.trim());
-        } catch (IllegalArgumentException badUrl) {
-            return NodeResult.fail("HTTP Request URL is not a valid URI.");
-        }
-        if (uri.getScheme() == null || !(uri.getScheme().equals("http") || uri.getScheme().equals("https"))) {
-            return NodeResult.fail("HTTP Request URL must be http or https.");
+            uri = com.flowops.common.security.SsrfGuard.validate(url);
+        } catch (IllegalArgumentException | com.flowops.common.error.ApiException blocked) {
+            return NodeResult.fail("HTTP Request target rejected: " + blocked.getMessage());
         }
 
         String body = ctx.configString("body");
@@ -75,6 +72,19 @@ public class HttpRequestExecutor implements NodeExecutor {
                 .uri(uri)
                 .timeout(ctx.properties().httpRequestTimeout())
                 .method(method, publisher);
+
+        // Inject integration auth if present
+        String authHeader = ctx.secret("authHeaderName");
+        String token = ctx.secret("apiToken");
+        if (authHeader != null && token != null) {
+            String headerName = ctx.interpolate(authHeader).trim();
+            String headerValue = ctx.interpolate(token).trim();
+            if (headerName.equalsIgnoreCase("Authorization") && !headerValue.toLowerCase().startsWith("bearer ") && !headerValue.toLowerCase().startsWith("basic ")) {
+                headerValue = "Bearer " + headerValue;
+            }
+            request.header(headerName, headerValue);
+        }
+
         applyHeaders(ctx, request);
 
         long startedAt = System.nanoTime();

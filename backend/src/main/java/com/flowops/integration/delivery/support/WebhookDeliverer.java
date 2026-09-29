@@ -80,8 +80,22 @@ public class WebhookDeliverer {
         long start = System.nanoTime();
         Duration timeout = requestTimeout == null ? DEFAULT_REQUEST_TIMEOUT : requestTimeout;
 
+        // Every webhook-style delivery goes through the same destination policy as
+        // workflow HTTP nodes: loopback, private ranges, and metadata endpoints are
+        // refused before a socket is opened. A stored Slack/Teams/Discord webhook URL
+        // is always public (hooks.slack.com et al.), so honest connections are unaffected.
+        java.net.URI uri;
+        try {
+            uri = com.flowops.common.security.SsrfGuard.validate(url);
+        } catch (com.flowops.common.error.ApiException | IllegalArgumentException blocked) {
+            return DeliveryResult.failure(
+                    DeliveryResult.Code.INVALID_CONFIG,
+                    "The webhook target is not allowed.",
+                    false, null, millisSince(start));
+        }
+
         HttpRequest.Builder request = HttpRequest.newBuilder()
-                .uri(URI.create(url))
+                .uri(uri)
                 .timeout(timeout)
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json");

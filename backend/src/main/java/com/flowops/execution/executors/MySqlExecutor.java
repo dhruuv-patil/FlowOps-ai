@@ -28,6 +28,7 @@ public class MySqlExecutor implements NodeExecutor {
         String username = ctx.configString("username");
         String password = ctx.configString("password");
         String sql = ctx.configString("sql");
+        JsonNode parameters = ctx.mapper().valueToTree(ctx.config().get("parameters"));
         String limitStr = ctx.configString("limit");
 
         if (host == null || host.isBlank()) return NodeResult.fail("MySQL requires 'host'.");
@@ -45,23 +46,30 @@ public class MySqlExecutor implements NodeExecutor {
             try { limit = Integer.parseInt(limitStr); } catch (NumberFormatException ignored) {}
         }
 
-        String interpolatedSql = ctx.interpolate(sql);
         String url = "jdbc:mysql://" + host + ":" + port + "/" + database + "?useSSL=false&allowPublicKeyRetrieval=true";
 
         Properties props = new Properties();
         props.setProperty("user", username);
         if (password != null) props.setProperty("password", password);
 
-        try (Connection conn = DriverManager.getConnection(url, props)) {
-            boolean isSelect = interpolatedSql.trim().toUpperCase().startsWith("SELECT");
+        try (Connection conn = DriverManager.getConnection(url, props);
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            if (parameters != null && parameters.isArray()) {
+                for (int i = 0; i < parameters.size(); i++) {
+                    stmt.setObject(i + 1, ctx.interpolate(parameters.get(i).asText()));
+                }
+            }
+
+            boolean isSelect = sql.trim().toUpperCase().startsWith("SELECT");
             if (isSelect) {
-                try (PreparedStatement stmt = conn.prepareStatement(interpolatedSql);
-                     ResultSet rs = stmt.executeQuery()) {
+                stmt.setMaxRows(limit);
+                try (ResultSet rs = stmt.executeQuery()) {
                     ArrayNode rows = ctx.mapper().createArrayNode();
                     ResultSetMetaData meta = rs.getMetaData();
                     int colCount = meta.getColumnCount();
                     int count = 0;
-                    while (rs.next() && count < limit) {
+                    while (rs.next()) {
                         ObjectNode row = ctx.mapper().createObjectNode();
                         for (int i = 1; i <= colCount; i++) {
                             String colName = meta.getColumnLabel(i);
@@ -78,13 +86,11 @@ public class MySqlExecutor implements NodeExecutor {
                     return NodeResult.success(output);
                 }
             } else {
-                try (Statement stmt = conn.createStatement()) {
-                    int affected = stmt.executeUpdate(interpolatedSql);
-                    ObjectNode output = ctx.mapper().createObjectNode();
-                    output.put("affectedRows", affected);
-                    ctx.log().info("MySQL executed, " + affected + " rows affected.");
-                    return NodeResult.success(output);
-                }
+                int affected = stmt.executeUpdate();
+                ObjectNode output = ctx.mapper().createObjectNode();
+                output.put("affectedRows", affected);
+                ctx.log().info("MySQL executed, " + affected + " rows affected.");
+                return NodeResult.success(output);
             }
         } catch (SQLException e) {
             return NodeResult.fail("MySQL error: " + e.getMessage());
