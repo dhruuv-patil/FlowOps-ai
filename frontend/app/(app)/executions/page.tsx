@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+
 import {
   Activity,
   ArrowUpRight,
@@ -10,6 +11,7 @@ import {
   Search,
   X,
 } from "lucide-react";
+
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 import {
@@ -39,13 +41,13 @@ const STATUS_FILTERS: {
   label: string;
   value: ExecutionStatus | "ALL";
 }[] = [
-    { label: "All statuses", value: "ALL" },
-    { label: "Running", value: "RUNNING" },
-    { label: "Waiting", value: "WAITING" },
-    { label: "Succeeded", value: "SUCCEEDED" },
-    { label: "Failed", value: "FAILED" },
-    { label: "Canceled", value: "CANCELED" },
-  ];
+  { label: "All statuses", value: "ALL" },
+  { label: "Running", value: "RUNNING" },
+  { label: "Waiting", value: "WAITING" },
+  { label: "Succeeded", value: "SUCCEEDED" },
+  { label: "Failed", value: "FAILED" },
+  { label: "Canceled", value: "CANCELED" },
+];
 
 interface MonitoredExecution {
   key: string;
@@ -64,42 +66,46 @@ interface MonitoredExecution {
 
 type UnifiedExecution =
   | {
-    kind: "INTERNAL";
-    id: string;
-    workflowName: string;
-    status: ExecutionStatus;
-    createdAt: string;
-    durationMs: number | null;
-    versionNumber: number;
-    triggerType: string;
-    error: string | null;
-    searchText: string;
-  }
+      kind: "INTERNAL";
+      id: string;
+      workflowName: string;
+      status: ExecutionStatus;
+      createdAt: string;
+      durationMs: number | null;
+      versionNumber: number;
+      triggerType: string;
+      error: string | null;
+      searchText: string;
+    }
   | {
-    kind: "EXTERNAL";
-    key: string;
-    workflowName: string;
-    status: string;
-    createdAt: string;
-    durationMs: number | null;
-    source: string;
-    executionExternalId: string;
-    workflowExternalId: string;
-    nodeCount: number;
-    searchText: string;
-  };
+      kind: "EXTERNAL";
+      key: string;
+      workflowName: string;
+      status: string;
+      createdAt: string;
+      durationMs: number | null;
+      source: string;
+      executionExternalId: string;
+      workflowExternalId: string;
+      nodeCount: number;
+      searchText: string;
+    };
 
 export default function ExecutionsPage() {
-  const [source, setSource] = useState<SourceFilter>("ALL");
+  const [source, setSource] =
+    useState<SourceFilter>("ALL");
+
   const [status, setStatus] =
     useState<ExecutionStatus | "ALL">("ALL");
+
   const [search, setSearch] = useState("");
 
   const query = useQuery({
     queryKey: ["executions", { status }],
     queryFn: () =>
       fetchExecutions({
-        status: status === "ALL" ? undefined : status,
+        status:
+          status === "ALL" ? undefined : status,
       }),
     placeholderData: keepPreviousData,
     refetchInterval: (q) =>
@@ -124,7 +130,8 @@ export default function ExecutionsPage() {
         : false,
   });
 
-  const executions = query.data?.executions ?? [];
+  const executions =
+    query.data?.executions ?? [];
 
   const monitoredExecutions = useMemo(
     () =>
@@ -134,59 +141,68 @@ export default function ExecutionsPage() {
     [monitoredQuery.data?.events],
   );
 
-  const unifiedExecutions = useMemo<UnifiedExecution[]>(
-    () => [
-      ...executions.map((execution) => ({
-        kind: "INTERNAL" as const,
-        id: execution.id,
-        workflowName:
-          execution.workflowName ?? "Untitled workflow",
-        status: execution.status,
-        createdAt: execution.createdAt,
-        durationMs: execution.durationMs,
-        versionNumber: execution.versionNumber,
-        triggerType: execution.triggerType,
-        error: execution.error ?? null,
-        searchText: [
-          execution.workflowName,
-          execution.id,
-          execution.triggerType,
-          execution.error,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase(),
-      })),
+  const unifiedExecutions =
+    useMemo<UnifiedExecution[]>(
+      () => [
+        ...executions.map((execution) => ({
+          kind: "INTERNAL" as const,
+          id: execution.id,
+          workflowName:
+            execution.workflowName ??
+            "Untitled workflow",
+          status: execution.status,
+          createdAt: execution.createdAt,
+          durationMs: execution.durationMs,
+          versionNumber:
+            execution.versionNumber,
+          triggerType: execution.triggerType,
+          error: execution.error ?? null,
+          searchText: [
+            execution.workflowName,
+            execution.id,
+            execution.triggerType,
+            execution.error,
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase(),
+        })),
 
-      ...monitoredExecutions.map((execution) => ({
-        kind: "EXTERNAL" as const,
-        key: execution.key,
-        workflowName: execution.workflowName,
-        status: execution.status,
-        createdAt: execution.latestEvent.createdAt,
-        durationMs: execution.durationMs,
-        source: execution.source,
-        executionExternalId:
-          execution.executionExternalId,
-        workflowExternalId:
-          execution.workflowExternalId,
-        nodeCount: execution.nodeCount,
-        searchText: [
-          execution.workflowName,
-          execution.source,
-          execution.executionExternalId,
-          execution.workflowExternalId,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase(),
-      })),
-    ],
-    [executions, monitoredExecutions],
-  );
+        ...monitoredExecutions.map(
+          (execution) => ({
+            kind: "EXTERNAL" as const,
+            key: execution.key,
+            workflowName:
+              execution.workflowName,
+            status: execution.status,
+            createdAt:
+              execution.latestEvent.createdAt,
+            durationMs:
+              execution.durationMs,
+            source: execution.source,
+            executionExternalId:
+              execution.executionExternalId,
+            workflowExternalId:
+              execution.workflowExternalId,
+            nodeCount: execution.nodeCount,
+            searchText: [
+              execution.workflowName,
+              execution.source,
+              execution.executionExternalId,
+              execution.workflowExternalId,
+            ]
+              .filter(Boolean)
+              .join(" ")
+              .toLowerCase(),
+          }),
+        ),
+      ],
+      [executions, monitoredExecutions],
+    );
 
   const visibleExecutions = useMemo(() => {
-    const normalizedSearch = search.trim().toLowerCase();
+    const normalizedSearch =
+      search.trim().toLowerCase();
 
     return unifiedExecutions
       .filter((execution) => {
@@ -199,14 +215,17 @@ export default function ExecutionsPage() {
 
         if (
           status !== "ALL" &&
-          execution.status.toUpperCase() !== status
+          execution.status.toUpperCase() !==
+            status
         ) {
           return false;
         }
 
         if (
           normalizedSearch &&
-          !execution.searchText.includes(normalizedSearch)
+          !execution.searchText.includes(
+            normalizedSearch,
+          )
         ) {
           return false;
         }
@@ -234,16 +253,22 @@ export default function ExecutionsPage() {
 
     const succeeded = all.filter(
       (execution) =>
-        execution.status.toUpperCase() === "SUCCEEDED",
+        execution.status.toUpperCase() ===
+        "SUCCEEDED",
     ).length;
 
     const failed = all.filter(
       (execution) =>
-        execution.status.toUpperCase() === "FAILED",
+        execution.status.toUpperCase() ===
+        "FAILED",
     ).length;
 
     const completed = all.filter((execution) =>
-      ["SUCCEEDED", "FAILED", "CANCELED"].includes(
+      [
+        "SUCCEEDED",
+        "FAILED",
+        "CANCELED",
+      ].includes(
         execution.status.toUpperCase(),
       ),
     );
@@ -251,10 +276,11 @@ export default function ExecutionsPage() {
     const avgDuration =
       completed.length > 0
         ? completed.reduce(
-          (sum, execution) =>
-            sum + (execution.durationMs ?? 0),
-          0,
-        ) / completed.length
+            (sum, execution) =>
+              sum +
+              (execution.durationMs ?? 0),
+            0,
+          ) / completed.length
         : null;
 
     return {
@@ -265,8 +291,10 @@ export default function ExecutionsPage() {
       successRate:
         completed.length > 0
           ? Math.round(
-            (succeeded / completed.length) * 1000,
-          ) / 10
+              (succeeded /
+                completed.length) *
+                1000,
+            ) / 10
           : null,
       avgDuration,
     };
@@ -284,17 +312,17 @@ export default function ExecutionsPage() {
   };
 
   const loading =
-    query.isPending || monitoredQuery.isPending;
+    query.isPending ||
+    monitoredQuery.isPending;
 
   const hasError =
-    query.isError || monitoredQuery.isError;
+    query.isError ||
+    monitoredQuery.isError;
 
   return (
-    <div className="w-full px-8 pb-12 lg:px-8">
+    <div className="w-full px-24 pb-12 pt-5 max-xl:px-12 max-lg:px-8 max-md:px-6">
 
-      {/* ================================================================ */}
-      {/* PAGE HEADER                                                       */}
-      {/* ================================================================ */}
+      {/* PAGE HEADER */}
 
       <section className="mb-6">
         <div className="flex items-end justify-between gap-6">
@@ -305,12 +333,12 @@ export default function ExecutionsPage() {
                 <Activity className="h-3.5 w-3.5 text-white/35" />
               </div>
 
-              <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/25">
+              <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-white/25">
                 Execution Control Plane
               </p>
             </div>
 
-            <h1 className="text-[27px] font-semibold leading-tight tracking-[-0.025em] text-white/90">
+            <h1 className="text-[23px] font-semibold leading-tight tracking-[-0.025em] text-white/90">
               Executions
             </h1>
 
@@ -320,7 +348,6 @@ export default function ExecutionsPage() {
             </p>
           </div>
 
-          {/* LIVE STATE */}
           <div className="mb-1 hidden items-center gap-2 rounded-lg border border-white/[0.07] bg-white/[0.02] px-3 py-2 md:flex">
             <span className="h-1.5 w-1.5 rounded-full bg-white/40" />
 
@@ -328,12 +355,11 @@ export default function ExecutionsPage() {
               Live monitoring
             </span>
           </div>
+
         </div>
       </section>
 
-      {/* ================================================================ */}
-      {/* OPERATIONAL SNAPSHOT                                             */}
-      {/* ================================================================ */}
+      {/* OPERATIONAL SNAPSHOT */}
 
       <section
         aria-label="Execution summary"
@@ -391,10 +417,12 @@ export default function ExecutionsPage() {
       </section>
 
       {/* FILTERS */}
+
       <section className="mb-6">
         <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
 
           {/* SEARCH */}
+
           <label className="relative min-w-0 flex-1">
             <Search className="pointer-events-none absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/25" />
 
@@ -420,6 +448,7 @@ export default function ExecutionsPage() {
           </label>
 
           {/* SOURCE FILTER */}
+
           <div className="flex shrink-0 items-center gap-1">
             {(
               [
@@ -428,13 +457,16 @@ export default function ExecutionsPage() {
                 ["EXTERNAL", "External"],
               ] as const
             ).map(([value, label]) => {
-              const active = source === value;
+              const active =
+                source === value;
 
               return (
                 <button
                   key={value}
                   type="button"
-                  onClick={() => setSource(value)}
+                  onClick={() =>
+                    setSource(value)
+                  }
                   className={cn(
                     "h-10 rounded-md border px-3 text-xs transition",
                     active
@@ -449,9 +481,11 @@ export default function ExecutionsPage() {
           </div>
 
           {/* STATUS FILTER */}
+
           <div className="flex shrink-0 items-center gap-1">
             {STATUS_FILTERS.map((filter) => {
-              const active = status === filter.value;
+              const active =
+                status === filter.value;
 
               return (
                 <button
@@ -476,6 +510,7 @@ export default function ExecutionsPage() {
           </div>
 
           {/* CLEAR */}
+
           {hasFilters && (
             <button
               type="button"
@@ -485,14 +520,15 @@ export default function ExecutionsPage() {
               Clear
             </button>
           )}
+
         </div>
       </section>
-      {/* ================================================================ */}
-      {/* EXECUTION LIST                                                    */}
-      {/* ================================================================ */}
+
+      {/* EXECUTION LIST */}
 
       <section>
         <div className="mb-3 flex items-end justify-between">
+
           <div>
             <h2 className="text-sm font-medium text-white/70">
               Recent executions
@@ -500,10 +536,11 @@ export default function ExecutionsPage() {
 
             <p className="mt-1 text-xs text-white/25">
               {hasFilters
-                ? `${visibleExecutions.length} matching ${visibleExecutions.length === 1
-                  ? "run"
-                  : "runs"
-                }`
+                ? `${visibleExecutions.length} matching ${
+                    visibleExecutions.length === 1
+                      ? "run"
+                      : "runs"
+                  }`
                 : "Newest first"}
             </p>
           </div>
@@ -523,8 +560,8 @@ export default function ExecutionsPage() {
               query.isError
                 ? getErrorMessage(query.error)
                 : getErrorMessage(
-                  monitoredQuery.error,
-                )
+                    monitoredQuery.error,
+                  )
             }
             onRetry={() => {
               void query.refetch();
@@ -559,7 +596,8 @@ export default function ExecutionsPage() {
           <div className="overflow-hidden rounded-xl border border-white/[0.08] bg-[#0b0b0c]">
 
             {/* TABLE HEADER */}
-            <div className="hidden h-10 items-center border-b border-white/[0.055] bg-white/[0.012] px-4 font-mono text-[9px] uppercase tracking-[0.13em] text-white/20 md:flex">
+
+            <div className="hidden h-10 items-center border-b border-white/[0.055] bg-white/[0.012] px-4 font-mono text-[10px] uppercase tracking-[0.12em] text-white/60 md:flex">
               <div className="w-[115px]">
                 Status
               </div>
@@ -584,7 +622,8 @@ export default function ExecutionsPage() {
                 (execution, index) => (
                   <ExecutionRow
                     key={
-                      execution.kind === "INTERNAL"
+                      execution.kind ===
+                      "INTERNAL"
                         ? `internal:${execution.id}`
                         : `external:${execution.key}`
                     }
@@ -603,10 +642,6 @@ export default function ExecutionsPage() {
     </div>
   );
 }
-
-/* ========================================================================== */
-/* METRIC                                                                    */
-/* ========================================================================== */
 
 function Metric({
   label,
@@ -649,10 +684,6 @@ function Metric({
   );
 }
 
-/* ========================================================================== */
-/* EXECUTION ROW                                                             */
-/* ========================================================================== */
-
 function ExecutionRow({
   execution,
   showDivider,
@@ -669,7 +700,7 @@ function ExecutionRow({
       <li
         className={cn(
           showDivider &&
-          "border-b border-white/[0.055]",
+            "border-b border-white/[0.055]",
         )}
       >
         <Link
@@ -689,7 +720,7 @@ function ExecutionRow({
 
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-2">
-              <span className="truncate text-xs font-medium text-white/75">
+              <span className="truncate text-[13px] font-medium text-white/75">
                 {execution.workflowName}
               </span>
 
@@ -698,9 +729,10 @@ function ExecutionRow({
               </span>
             </div>
 
-            <div className="mt-1 truncate font-mono text-[10px] text-white/22">
+            <div className="mt-1 truncate text-[12px] text-white/25">
               v{execution.versionNumber} ·{" "}
-              {execution.triggerType.toLowerCase()} trigger
+              {execution.triggerType.toLowerCase()}{" "}
+              trigger
               {execution.error
                 ? ` · ${execution.error}`
                 : ""}
@@ -709,7 +741,9 @@ function ExecutionRow({
 
           <ExecutionMeta
             createdAt={execution.createdAt}
-            durationMs={execution.durationMs}
+            durationMs={
+              execution.durationMs
+            }
           />
 
           <ArrowUpRight className="hidden h-3.5 w-3.5 shrink-0 text-white/10 transition group-hover:text-white/35 md:block" />
@@ -722,7 +756,7 @@ function ExecutionRow({
     <li
       className={cn(
         showDivider &&
-        "border-b border-white/[0.055]",
+          "border-b border-white/[0.055]",
       )}
     >
       <Link
@@ -746,7 +780,7 @@ function ExecutionRow({
 
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-xs font-medium text-white/75">
+            <span className="truncate text-[13px] font-medium text-white/75">
               {execution.workflowName}
             </span>
 
@@ -759,9 +793,10 @@ function ExecutionRow({
             </span>
           </div>
 
-          <div className="mt-1 truncate font-mono text-[10px] text-white/22">
-            run {execution.executionExternalId} ·{" "}
-            {execution.nodeCount}{" "}
+          <div className="mt-1 truncate text-[12px] text-white/25">
+            run{" "}
+            {execution.executionExternalId}{" "}
+            · {execution.nodeCount}{" "}
             {execution.nodeCount === 1
               ? "node"
               : "nodes"}
@@ -770,7 +805,9 @@ function ExecutionRow({
 
         <ExecutionMeta
           createdAt={execution.createdAt}
-          durationMs={execution.durationMs}
+          durationMs={
+            execution.durationMs
+          }
         />
 
         <ExternalLink className="hidden h-3.5 w-3.5 shrink-0 text-white/10 transition group-hover:text-white/35 md:block" />
@@ -778,10 +815,6 @@ function ExecutionRow({
     </li>
   );
 }
-
-/* ========================================================================== */
-/* STATUS                                                                     */
-/* ========================================================================== */
 
 function StatusIndicator({
   status,
@@ -827,7 +860,7 @@ function StatusText({
   return (
     <span
       className={cn(
-        "text-[11px] capitalize",
+        "text-[12px] capitalize",
         statusTextColor(status),
       )}
     >
@@ -911,10 +944,6 @@ function statusTextColor(
   }
 }
 
-/* ========================================================================== */
-/* META                                                                       */
-/* ========================================================================== */
-
 function ExecutionMeta({
   createdAt,
   durationMs,
@@ -934,10 +963,6 @@ function ExecutionMeta({
     </div>
   );
 }
-
-/* ========================================================================== */
-/* EXTERNAL EXECUTION GROUPING                                               */
-/* ========================================================================== */
 
 function groupExternalExecutions(
   events: ExecutionEvent[],
@@ -972,38 +997,51 @@ function groupExternalExecutions(
       );
 
       const latestEvent = sorted[0];
-      const status = deriveExternalStatus(group);
+      const status =
+        deriveExternalStatus(group);
 
       const stepIds = new Set(
         group
-          .map((event) => event.stepExternalId)
+          .map(
+            (event) =>
+              event.stepExternalId,
+          )
           .filter(Boolean),
       );
 
       const workflowName =
-        getExternalWorkflowName(latestEvent);
+        getExternalWorkflowName(
+          latestEvent,
+        );
 
-      const startedAt = earliestTimestamp(
-        group.map((event) => event.startedAt),
-      );
+      const startedAt =
+        earliestTimestamp(
+          group.map(
+            (event) => event.startedAt,
+          ),
+        );
 
-      const finishedAt = latestTimestamp(
-        group.map((event) => event.finishedAt),
-      );
+      const finishedAt =
+        latestTimestamp(
+          group.map(
+            (event) => event.finishedAt,
+          ),
+        );
 
       const durationMs =
         startedAt && finishedAt
           ? Math.max(
-            0,
-            Date.parse(finishedAt) -
-            Date.parse(startedAt),
-          )
+              0,
+              Date.parse(finishedAt) -
+                Date.parse(startedAt),
+            )
           : null;
 
       return {
         key,
         source:
-          latestEvent.source || "external",
+          latestEvent.source ||
+          "external",
         workflowExternalId:
           latestEvent.workflowExternalId,
         workflowName,
@@ -1012,7 +1050,8 @@ function groupExternalExecutions(
         status,
         events: sorted,
         nodeCount:
-          stepIds.size || group.length,
+          stepIds.size ||
+          group.length,
         latestEvent,
         startedAt,
         finishedAt,
@@ -1021,29 +1060,41 @@ function groupExternalExecutions(
     })
     .sort(
       (a, b) =>
-        Date.parse(b.latestEvent.createdAt) -
-        Date.parse(a.latestEvent.createdAt),
+        Date.parse(
+          b.latestEvent.createdAt,
+        ) -
+        Date.parse(
+          a.latestEvent.createdAt,
+        ),
     );
 }
 
 function deriveExternalStatus(
   events: ExecutionEvent[],
 ): string {
-  const statuses = events.map((event) =>
-    event.status.toUpperCase(),
+  const statuses = events.map(
+    (event) =>
+      event.status.toUpperCase(),
   );
 
-  if (statuses.includes("FAILED")) return "FAILED";
+  if (statuses.includes("FAILED"))
+    return "FAILED";
+
   if (statuses.includes("CANCELED"))
     return "CANCELED";
+
   if (statuses.includes("RUNNING"))
     return "RUNNING";
+
   if (statuses.includes("WAITING"))
     return "WAITING";
+
   if (statuses.includes("QUEUED"))
     return "QUEUED";
+
   if (statuses.includes("SUCCEEDED"))
     return "SUCCEEDED";
+
   if (statuses.includes("SKIPPED"))
     return "SKIPPED";
 
@@ -1082,47 +1133,54 @@ function getExternalWorkflowName(
 }
 
 function earliestTimestamp(
-  values: Array<string | null | undefined>,
+  values: Array<
+    string | null | undefined
+  >,
 ): string | null {
   const valid = values.filter(
     (value): value is string =>
       Boolean(value),
   );
 
-  if (valid.length === 0) return null;
+  if (valid.length === 0)
+    return null;
 
-  return valid.reduce((earliest, value) =>
-    Date.parse(value) < Date.parse(earliest)
-      ? value
-      : earliest,
+  return valid.reduce(
+    (earliest, value) =>
+      Date.parse(value) <
+      Date.parse(earliest)
+        ? value
+        : earliest,
   );
 }
 
 function latestTimestamp(
-  values: Array<string | null | undefined>,
+  values: Array<
+    string | null | undefined
+  >,
 ): string | null {
   const valid = values.filter(
     (value): value is string =>
       Boolean(value),
   );
 
-  if (valid.length === 0) return null;
+  if (valid.length === 0)
+    return null;
 
-  return valid.reduce((latest, value) =>
-    Date.parse(value) > Date.parse(latest)
-      ? value
-      : latest,
+  return valid.reduce(
+    (latest, value) =>
+      Date.parse(value) >
+      Date.parse(latest)
+        ? value
+        : latest,
   );
 }
-
-/* ========================================================================== */
-/* LIVE STATE                                                                 */
-/* ========================================================================== */
 
 function isExternalLiveStatus(
   status: string,
 ): boolean {
-  const normalized = status.toUpperCase();
+  const normalized =
+    status.toUpperCase();
 
   return (
     normalized === "RUNNING" ||
@@ -1136,10 +1194,6 @@ function isAnyLiveStatus(
 ): boolean {
   return isExternalLiveStatus(status);
 }
-
-/* ========================================================================== */
-/* LOADING                                                                    */
-/* ========================================================================== */
 
 function ExecutionListSkeleton() {
   return (
@@ -1170,10 +1224,6 @@ function ExecutionListSkeleton() {
   );
 }
 
-/* ========================================================================== */
-/* ERROR                                                                      */
-/* ========================================================================== */
-
 function ErrorState({
   message,
   onRetry,
@@ -1201,10 +1251,6 @@ function ErrorState({
     </div>
   );
 }
-
-/* ========================================================================== */
-/* EMPTY                                                                      */
-/* ========================================================================== */
 
 function EmptyState({
   title,

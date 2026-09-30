@@ -188,9 +188,9 @@ export function AppShell({
           onOpenPalette={() => setPaletteOpen(true)}
         />
 
-        <main className="flex-1 overflow-y-auto px-5 py-5 lg:px-6 lg:py-6">
-          <PageTransition>{children}</PageTransition>
-        </main>
+        <main className="flex-1 min-h-0 overflow-hidden p-0 m-0">
+  <PageTransition>{children}</PageTransition>
+</main>
       </div>
 
       <CommandPalette
@@ -240,7 +240,7 @@ function Sidebar({
 
             {!collapsed && (
               <span className="truncate text-sm font-semibold tracking-tight text-white/90">
-                FlowOps
+                Trace.run
               </span>
             )}
           </Link>

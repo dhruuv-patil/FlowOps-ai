@@ -39,10 +39,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 import { cn } from "@/lib/utils";
 
-/* ==========================================================================
-   TYPES
-   ========================================================================== */
-
 type TemplateApp = {
   key: string;
   name: string;
@@ -51,26 +47,16 @@ type TemplateApp = {
   kind: "brand" | "generic";
 };
 
-/* ==========================================================================
-   CONSTANTS
-   ========================================================================== */
-
 const EMPTY_TEMPLATES: WorkflowTemplateSummary[] = [];
 
 const THESVG_BASE = "https://thesvg.org/icons";
 
-/*
- * This registry intentionally mirrors the Workflow Builder's
- * theSVG registry.
- */
 const THESVG_SLUGS: Record<string, string> = {
-  /* Automation */
   n8n: "n8n",
   make: "make",
   zapier: "zapier",
   temporal: "temporal",
 
-  /* Developer */
   github: "github",
   githubactions: "github-actions",
   "github-actions": "github-actions",
@@ -82,12 +68,10 @@ const THESVG_SLUGS: Record<string, string> = {
   jira: "jira",
   asana: "asana",
 
-  /* CRM */
   hubspot: "hubspot",
   salesforce: "salesforce",
   pipedrive: "pipedrive",
 
-  /* Communication */
   slack: "slack",
   discord: "discord",
   teams: "microsoft-teams",
@@ -95,30 +79,24 @@ const THESVG_SLUGS: Record<string, string> = {
   telegram: "telegram",
   twilio: "twilio",
 
-  /* Email */
   gmail: "gmail",
   sendgrid: "sendgrid",
   resend: "resend",
 
-  /* Productivity */
   notion: "notion",
   "google-sheets": "google-sheets",
   googlesheets: "google-sheets",
 
-  /* Google */
   calendar: "google-calendar-2026",
   googlecalendar: "google-calendar-2026",
   google_calendar: "google-calendar-2026",
   "google-calendar": "google-calendar-2026",
 
-  /* Payments */
   stripe: "stripe",
 
-  /* AI */
   openai: "openai",
   anthropic: "anthropic",
 
-  /* Cloud / storage */
   aws: "aws",
   s3: "amazon-s3",
   "aws-s3": "amazon-s3",
@@ -135,17 +113,6 @@ function normalize(value?: string) {
     .replace(/[\s./-]+/g, "_");
 }
 
-/* ==========================================================================
-   BRAND RESOLUTION
-   ========================================================================== */
-
-/**
- * Same basic resolution strategy used by the Workflow Builder:
- *
- * 1. Resolve specific integrations first.
- * 2. Resolve known providers.
- * 3. Never invent a brand logo for FlowOps-native nodes.
- */
 function resolveTheSvgSlug(
   type?: string,
   label?: string,
@@ -156,10 +123,6 @@ function resolveTheSvgSlug(
   ].filter(Boolean);
 
   for (const value of values) {
-    /* ----------------------------------------------------------------------
-       Specific integrations
-       ---------------------------------------------------------------------- */
-
     if (
       value.includes("github_actions") ||
       value.includes("githubactions")
@@ -197,10 +160,6 @@ function resolveTheSvgSlug(
     ) {
       return THESVG_SLUGS.s3;
     }
-
-    /* ----------------------------------------------------------------------
-       Providers
-       ---------------------------------------------------------------------- */
 
     if (value.includes("salesforce")) {
       return THESVG_SLUGS.salesforce;
@@ -328,15 +287,7 @@ function resolveTheSvgSlug(
   return null;
 }
 
-/* ==========================================================================
-   TEMPLATE APP REGISTRY
-   ========================================================================== */
-
 const TEMPLATE_APPS: Record<string, TemplateApp> = {
-  /* ------------------------------------------------------------------------
-     GOOGLE
-     ------------------------------------------------------------------------ */
-
   gmail: {
     key: "gmail",
     name: "Gmail",
@@ -368,10 +319,6 @@ const TEMPLATE_APPS: Record<string, TemplateApp> = {
     iconSlug: THESVG_SLUGS["google-sheets"],
     kind: "brand",
   },
-
-  /* ------------------------------------------------------------------------
-     DEVELOPER
-     ------------------------------------------------------------------------ */
 
   github: {
     key: "github",
@@ -453,10 +400,6 @@ const TEMPLATE_APPS: Record<string, TemplateApp> = {
     kind: "brand",
   },
 
-  /* ------------------------------------------------------------------------
-     CRM
-     ------------------------------------------------------------------------ */
-
   hubspot: {
     key: "hubspot",
     name: "HubSpot",
@@ -480,10 +423,6 @@ const TEMPLATE_APPS: Record<string, TemplateApp> = {
     iconSlug: THESVG_SLUGS.pipedrive,
     kind: "brand",
   },
-
-  /* ------------------------------------------------------------------------
-     COMMUNICATION
-     ------------------------------------------------------------------------ */
 
   slack: {
     key: "slack",
@@ -525,10 +464,6 @@ const TEMPLATE_APPS: Record<string, TemplateApp> = {
     kind: "brand",
   },
 
-  /* ------------------------------------------------------------------------
-     EMAIL
-     ------------------------------------------------------------------------ */
-
   sendgrid: {
     key: "sendgrid",
     name: "SendGrid",
@@ -545,10 +480,6 @@ const TEMPLATE_APPS: Record<string, TemplateApp> = {
     kind: "brand",
   },
 
-  /* ------------------------------------------------------------------------
-     PRODUCTIVITY
-     ------------------------------------------------------------------------ */
-
   notion: {
     key: "notion",
     name: "Notion",
@@ -557,10 +488,6 @@ const TEMPLATE_APPS: Record<string, TemplateApp> = {
     kind: "brand",
   },
 
-  /* ------------------------------------------------------------------------
-     PAYMENTS
-     ------------------------------------------------------------------------ */
-
   stripe: {
     key: "stripe",
     name: "Stripe",
@@ -568,10 +495,6 @@ const TEMPLATE_APPS: Record<string, TemplateApp> = {
     iconSlug: THESVG_SLUGS.stripe,
     kind: "brand",
   },
-
-  /* ------------------------------------------------------------------------
-     AI
-     ------------------------------------------------------------------------ */
 
   openai: {
     key: "openai",
@@ -588,10 +511,6 @@ const TEMPLATE_APPS: Record<string, TemplateApp> = {
     iconSlug: THESVG_SLUGS.anthropic,
     kind: "brand",
   },
-
-  /* ------------------------------------------------------------------------
-     AUTOMATION
-     ------------------------------------------------------------------------ */
 
   n8n: {
     key: "n8n",
@@ -625,10 +544,6 @@ const TEMPLATE_APPS: Record<string, TemplateApp> = {
     kind: "brand",
   },
 
-  /* ------------------------------------------------------------------------
-     CLOUD
-     ------------------------------------------------------------------------ */
-
   aws: {
     key: "aws",
     name: "AWS",
@@ -645,54 +560,133 @@ const TEMPLATE_APPS: Record<string, TemplateApp> = {
     kind: "brand",
   },
 
-  /* ------------------------------------------------------------------------
-     FLOWOPS NATIVE / GENERIC
-     ------------------------------------------------------------------------ */
+  ai: {
+    key: "ai",
+    name: "AI",
+    color: "#8B5CF6",
+    kind: "generic",
+  },
 
   webhook: {
     key: "webhook",
     name: "Webhook",
-    color: "#6366F1",
+    color: "#F59E0B",
     kind: "generic",
   },
 
   http: {
     key: "http",
-    name: "HTTP API",
-    color: "#22C55E",
+    name: "HTTP",
+    color: "#3B82F6",
     kind: "generic",
   },
 
   approval: {
     key: "approval",
-    name: "Human approval",
-    color: "#8B5CF6",
-    kind: "generic",
-  },
-
-  ai: {
-    key: "ai",
-    name: "AI",
-    color: "#A855F7",
+    name: "Human Approval",
+    color: "#10B981",
     kind: "generic",
   },
 
   email: {
     key: "email",
     name: "Email",
-    color: "#EA4335",
+    color: "#EF4444",
     kind: "generic",
   },
 };
 
-/* ==========================================================================
-   PAGE
-   ========================================================================== */
+function getTemplateApps(
+  template: WorkflowTemplateSummary,
+): TemplateApp[] {
+  const providers = template.providers ?? [];
+
+  const aliases: Record<string, string> = {
+    googlesheets: "google-sheets",
+    google_sheets: "google-sheets",
+    "google-sheets": "google-sheets",
+    googlesheet: "google-sheets",
+
+    googlecalendar: "calendar",
+    google_calendar: "calendar",
+    "google-calendar": "calendar",
+
+    githubactions: "githubactions",
+    github_actions: "githubactions",
+    "github-actions": "github-actions",
+
+    microsoftteams: "teams",
+    microsoft_teams: "teams",
+    "microsoft-teams": "teams",
+    "ms-teams": "teams",
+    msteams: "teams",
+
+    amazonaws: "aws",
+    "amazon-web-services": "aws",
+    aws_s3: "s3",
+    amazons3: "s3",
+    "amazon-s3": "s3",
+
+    rest: "http",
+    "rest-api": "http",
+    restapi: "http",
+    httpapi: "http",
+
+    humanapproval: "approval",
+    human_approval: "approval",
+    "human-approval": "approval",
+
+    llm: "ai",
+    agent: "ai",
+    aiagent: "ai",
+  };
+
+  return providers
+    .map((provider) => {
+      const normalized = provider
+        .trim()
+        .toLowerCase()
+        .replace(/[\s_]+/g, "-");
+
+      if (TEMPLATE_APPS[normalized]) {
+        return TEMPLATE_APPS[normalized];
+      }
+
+      const alias = aliases[normalized];
+
+      if (alias) {
+        return TEMPLATE_APPS[alias] ?? null;
+      }
+
+      const slug = resolveTheSvgSlug(
+        normalized,
+        provider,
+      );
+
+      if (slug) {
+        const matchingKey = Object.keys(
+          TEMPLATE_APPS,
+        ).find(
+          (key) =>
+            TEMPLATE_APPS[key].iconSlug === slug,
+        );
+
+        if (matchingKey) {
+          return TEMPLATE_APPS[matchingKey];
+        }
+      }
+
+      return null;
+    })
+    .filter(
+      (app): app is TemplateApp =>
+        app !== null,
+    );
+}
 
 export default function TemplatesPage() {
   const [search, setSearch] = useState("");
-  const [category, setCategory] =
-    useState<string | null>(null);
+  const [category, setCategory] = useState("All");
 
   const query = useQuery({
     queryKey: ["templates"],
@@ -700,252 +694,203 @@ export default function TemplatesPage() {
   });
 
   const all =
-    query.data?.templates ??
-    EMPTY_TEMPLATES;
-
-  /* ------------------------------------------------------------------------
-     CATEGORIES
-     ------------------------------------------------------------------------ */
+    query.data?.templates ?? EMPTY_TEMPLATES;
 
   const categories = useMemo(() => {
-    const values = new Set(
-      all.map(
-        (template) => template.category,
-      ),
-    );
+    const values = new Set<string>();
 
-    return Array.from(values).sort();
+    for (const template of all) {
+      if (template.category) {
+        values.add(template.category);
+      }
+    }
+
+    return [
+      "All",
+      ...Array.from(values).sort(),
+    ];
   }, [all]);
 
-  /* ------------------------------------------------------------------------
-     FILTERED TEMPLATES
-     ------------------------------------------------------------------------ */
-
-  const templates = useMemo(() => {
-    const term = search
-      .trim()
-      .toLowerCase();
+  const filteredTemplates = useMemo(() => {
+    const normalizedSearch =
+      search.trim().toLowerCase();
 
     return all.filter((template) => {
-      if (
-        category &&
-        template.category !== category
-      ) {
+      const matchesCategory =
+        category === "All" ||
+        template.category === category;
+
+      if (!matchesCategory) {
         return false;
       }
 
-      if (!term) {
+      if (!normalizedSearch) {
         return true;
       }
 
-      return (
-        template.name
-          .toLowerCase()
-          .includes(term) ||
-        template.description
-          .toLowerCase()
-          .includes(term) ||
-        template.category
-          .toLowerCase()
-          .includes(term) ||
-        (template.tags ?? []).some((tag) =>
-          tag.toLowerCase().includes(term),
-        ) ||
-        (template.providers ?? []).some(
-          (provider) =>
-            provider
-              .toLowerCase()
-              .includes(term),
-        )
+      const searchable = [
+        template.name,
+        template.description,
+        template.category,
+        ...(template.tags ?? []),
+        ...(template.providers ?? []),
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return searchable.includes(
+        normalizedSearch,
       );
     });
-  }, [all, search, category]);
+  }, [all, category, search]);
 
-  const recommended = templates.slice(0, 3);
+  const recommended = filteredTemplates.slice(
+    0,
+    3,
+  );
 
-  const remaining = useMemo(() => {
-    const recommendedSlugs =
-      new Set(
-        recommended.map(
-          (template) => template.slug,
-        ),
-      );
+  const remaining = filteredTemplates.filter(
+    (template) =>
+      !recommended.some(
+        (item) =>
+          item.slug === template.slug,
+      ),
+  );
 
-    return templates.filter(
-      (template) =>
-        !recommendedSlugs.has(
-          template.slug,
-        ),
-    );
-  }, [templates, recommended]);
+  const hasFilters =
+    Boolean(search.trim()) ||
+    category !== "All";
 
-  /* ------------------------------------------------------------------------
-     RENDER
-     ------------------------------------------------------------------------ */
+  const clearFilters = () => {
+    setSearch("");
+    setCategory("All");
+  };
 
   return (
-    <main className="w-full px-8 py-8 pb-16">
-      {/* HEADER */}
+    <main className="min-h-screen bg-[#050505] text-white">
+      <div className="mx-auto w-full max-w-[1500px] px-6 py-8 lg:px-8">
+        <div className="mb-8">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/30">
+                Workflow library
+              </p>
 
-      <div className="mb-7">
-        <p className="mono-eyebrow">
-          Workspace
-        </p>
+              <h1 className="text-2xl font-semibold tracking-tight text-white">
+                Templates
+              </h1>
 
-        <h1 className="mt-1 text-xl font-semibold tracking-tight text-white/90">
-          Templates
-        </h1>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-white/40">
+                Production-ready workflow blueprints
+                for automation, reliability,
+                operations, AI, and business
+                processes.
+              </p>
+            </div>
 
-        <p className="mt-1 max-w-2xl text-sm text-white/44">
-          Start from a ready-made workflow.
-          Using one creates an editable draft
-          in your workspace — you review and
-          publish it yourself.
-        </p>
-      </div>
+            <div className="w-full lg:w-[320px]">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-white/25" />
 
-      {/* SEARCH / FILTERS */}
+                <Input
+                  value={search}
+                  onChange={(event) =>
+                    setSearch(event.target.value)
+                  }
+                  placeholder="Search templates..."
+                  className="h-10 rounded-lg border-white/[0.08] bg-white/[0.025] pl-9 text-sm text-white placeholder:text-white/25 focus-visible:ring-1 focus-visible:ring-white/20"
+                />
+              </div>
+            </div>
+          </div>
 
-      <div className="mb-9 flex flex-col gap-3 lg:flex-row lg:items-center">
-        <div className="relative w-full lg:max-w-[420px]">
-          <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-white/25" />
-
-          <Input
-            value={search}
-            onChange={(event) =>
-              setSearch(event.target.value)
-            }
-            placeholder="Search templates..."
-            className="h-10 rounded-md border-white/[0.08] bg-[#0a0a0a] pl-10 text-sm text-white placeholder:text-white/25 focus:border-white/[0.16]"
-          />
+          <div className="mt-6 flex gap-2 overflow-x-auto pb-1">
+            {categories.map((item) => (
+              <CategoryPill
+                key={item}
+                label={item}
+                active={category === item}
+                onClick={() =>
+                  setCategory(item)
+                }
+              />
+            ))}
+          </div>
         </div>
 
-        <div className="flex min-w-0 gap-1.5 overflow-x-auto pb-1">
-          <CategoryPill
-            label="All"
-            active={category === null}
-            onClick={() =>
-              setCategory(null)
-            }
-          />
+        {query.isLoading ? (
+          <TemplateLoading />
+        ) : query.isError ? (
+          <div className="rounded-lg border border-red-500/10 bg-red-500/[0.03] px-5 py-12 text-center">
+            <p className="text-sm font-medium text-red-300/80">
+              Could not load templates
+            </p>
 
-          {categories.map((item) => (
-            <CategoryPill
-              key={item}
-              label={item}
-              active={category === item}
-              onClick={() =>
-                setCategory(item)
-              }
-            />
-          ))}
-        </div>
-      </div>
-
-      {/* LOADING */}
-
-      {query.isPending && (
-        <TemplateLoading />
-      )}
-
-      {/* ERROR */}
-
-      {query.isError && (
-        <div className="rounded-lg border border-red-500/20 bg-red-500/[0.03] px-5 py-12 text-center">
-          <p className="text-sm text-red-300">
-            Could not load templates.
-          </p>
-
-          <p className="mt-1 text-xs text-white/30">
-            Please try again.
-          </p>
-        </div>
-      )}
-
-      {/* EMPTY */}
-
-      {!query.isPending &&
-        !query.isError &&
-        templates.length === 0 && (
+            <p className="mx-auto mt-2 max-w-md text-xs leading-5 text-white/30">
+              {getErrorMessage(
+                query.error,
+                "Something went wrong while loading the template library.",
+              )}
+            </p>
+          </div>
+        ) : filteredTemplates.length === 0 ? (
           <EmptyTemplates
             search={search}
-            hasFilters={
-              Boolean(search) ||
-              category !== null
-            }
-            onClear={() => {
-              setSearch("");
-              setCategory(null);
-            }}
+            hasFilters={hasFilters}
+            onClear={clearFilters}
           />
-        )}
-
-      {/* GALLERY */}
-
-      {!query.isPending &&
-        !query.isError &&
-        templates.length > 0 && (
+        ) : (
           <>
-            {/* RECOMMENDED */}
-
-            <section className="mb-11">
-              <div className="mb-4">
-                <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-white/30">
-                  RECOMMENDED
-                </p>
-
-                <div className="mt-1.5 flex items-end justify-between gap-4">
+            {recommended.length > 0 && (
+              <section className="mb-10">
+                <div className="mb-4 flex items-center justify-between">
                   <div>
-                    <h2 className="text-lg font-semibold tracking-tight text-white">
-                      Recommended for you
+                    <h2 className="text-sm font-semibold text-white/80">
+                      Recommended
                     </h2>
 
-                    <p className="mt-1 text-xs text-white/30">
-                      Start with a ready-made
-                      automation and adapt it
-                      to your use case.
+                    <p className="mt-1 text-xs text-white/25">
+                      Start with a proven workflow
+                      pattern.
                     </p>
                   </div>
 
-                  <span className="hidden text-xs text-white/20 sm:block">
-                    {templates.length} templates
+                  <span className="text-[10px] text-white/20">
+                    {recommended.length} templates
                   </span>
                 </div>
-              </div>
 
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-                {recommended.map(
-                  (template, index) => (
-                    <TemplateCard
-                      key={template.slug}
-                      template={template}
-                      featured={
-                        index === 0 &&
-                        !search &&
-                        category === null
-                      }
-                    />
-                  ),
-                )}
-              </div>
-            </section>
-
-            {/* MORE WORKFLOWS */}
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {recommended.map(
+                    (template) => (
+                      <TemplateCard
+                        key={template.slug}
+                        template={template}
+                        featured
+                      />
+                    ),
+                  )}
+                </div>
+              </section>
+            )}
 
             {remaining.length > 0 && (
               <section>
-                <div className="mb-4">
-                  <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-white/30">
-                    {category
-                      ? category.toUpperCase()
-                      : "WORKFLOWS"}
-                  </p>
+                <div className="mb-4 flex items-center justify-between">
+                  <div>
+                    <h2 className="text-sm font-semibold text-white/80">
+                      All templates
+                    </h2>
 
-                  <h2 className="mt-1.5 text-lg font-semibold tracking-tight text-white">
-                    {category
-                      ? `${category} workflows`
-                      : "More workflows"}
-                  </h2>
+                    <p className="mt-1 text-xs text-white/25">
+                      Browse the complete FlowOps
+                      template library.
+                    </p>
+                  </div>
+
+                  <span className="text-[10px] text-white/20">
+                    {remaining.length} templates
+                  </span>
                 </div>
 
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -962,13 +907,10 @@ export default function TemplatesPage() {
             )}
           </>
         )}
+      </div>
     </main>
   );
 }
-
-/* ==========================================================================
-   CATEGORY PILL
-   ========================================================================== */
 
 function CategoryPill({
   label,
@@ -994,10 +936,6 @@ function CategoryPill({
     </button>
   );
 }
-
-/* ==========================================================================
-   TEMPLATE CARD
-   ========================================================================== */
 
 function TemplateCard({
   template,
@@ -1104,11 +1042,6 @@ function TemplateCard({
     </article>
   );
 }
-
-/* ==========================================================================
-   TEMPLATE PREVIEW
-   ========================================================================== */
-
 function TemplatePreview({
   template,
   featured,
@@ -1223,6 +1156,7 @@ function LandingIntegrationIcon({
    * use exactly the same theSVG URL convention
    * as the Workflow Builder.
    */
+
   if (
     app.kind === "brand" &&
     app.iconSlug &&
@@ -1255,6 +1189,7 @@ function LandingIntegrationIcon({
    * FlowOps-native nodes do NOT pretend to be
    * third-party brands.
    */
+
   return (
     <div
       className="flex size-10 items-center justify-center rounded-lg border border-slate-200 bg-slate-50"
@@ -1286,197 +1221,7 @@ function LandingIntegrationIcon({
    TEMPLATE PROVIDER → APP RESOLUTION
    ========================================================================== */
 
-function getTemplateApps(
-  template: WorkflowTemplateSummary,
-): TemplateApp[] {
-  const providers =
-    template.providers ?? [];
 
-  const aliases: Record<
-    string,
-    string
-  > = {
-    /* Google */
-
-    googlesheets:
-      "google-sheets",
-
-    google_sheets:
-      "google-sheets",
-
-    "google-sheets":
-      "google-sheets",
-
-    googlesheet:
-      "google-sheets",
-
-    googlecalendar:
-      "calendar",
-
-    google_calendar:
-      "calendar",
-
-    "google-calendar":
-      "calendar",
-
-    /* GitHub */
-
-    githubactions:
-      "githubactions",
-
-    github_actions:
-      "githubactions",
-
-    "github-actions":
-      "github-actions",
-
-    /* Microsoft */
-
-    microsoftteams:
-      "teams",
-
-    microsoft_teams:
-      "teams",
-
-    "microsoft-teams":
-      "teams",
-
-    "ms-teams":
-      "teams",
-
-    msteams:
-      "teams",
-
-    /* AWS */
-
-    amazonaws:
-      "aws",
-
-    "amazon-web-services":
-      "aws",
-
-    aws_s3:
-      "s3",
-
-    amazons3:
-      "s3",
-
-    "amazon-s3":
-      "s3",
-
-    /* HTTP */
-
-    rest:
-      "http",
-
-    "rest-api":
-      "http",
-
-    restapi:
-      "http",
-
-    httpapi:
-      "http",
-
-    /* Approval */
-
-    humanapproval:
-      "approval",
-
-    human_approval:
-      "approval",
-
-    "human-approval":
-      "approval",
-
-    /* AI */
-
-    llm:
-      "ai",
-
-    agent:
-      "ai",
-
-    aiagent:
-      "ai",
-  };
-
-  return providers
-    .map((provider) => {
-      const normalized =
-        provider
-          .trim()
-          .toLowerCase()
-          .replace(
-            /[\s_]+/g,
-            "-",
-          );
-
-      /*
-       * Direct registry lookup.
-       */
-      if (
-        TEMPLATE_APPS[
-          normalized
-        ]
-      ) {
-        return TEMPLATE_APPS[
-          normalized
-        ];
-      }
-
-      /*
-       * Alias lookup.
-       */
-      const alias =
-        aliases[normalized];
-
-      if (alias) {
-        return (
-          TEMPLATE_APPS[alias] ??
-          null
-        );
-      }
-
-      /*
-       * Last-resort brand resolution.
-       * This allows provider strings such as:
-       * "OpenAI API"
-       * "GitHub Actions"
-       * "Google Sheets"
-       */
-      const slug =
-        resolveTheSvgSlug(
-          normalized,
-          provider,
-        );
-
-      if (slug) {
-        const matchingKey =
-          Object.keys(
-            TEMPLATE_APPS,
-          ).find(
-            (key) =>
-              TEMPLATE_APPS[key]
-                .iconSlug === slug,
-          );
-
-        if (matchingKey) {
-          return TEMPLATE_APPS[
-            matchingKey
-          ];
-        }
-      }
-
-      return null;
-    })
-    .filter(
-      (
-        app,
-      ): app is TemplateApp =>
-        app !== null,
-    );
-}
 
 /* ==========================================================================
    EMPTY TEMPLATES

@@ -15,12 +15,12 @@ const tabs = [
   { label: 'Detect', heading: 'Catch drift before it spreads.', copy: 'FlowOps learns your baseline and surfaces anomalies while there is still time to act.' },
   { label: 'Diagnose', heading: 'Turn failures into fixes.', copy: 'Trace the exact step, timing, and failure context behind every failed execution.' },
 ]
-const faqs = ['What is FlowOps?', 'Does FlowOps replace my workflow tools?', 'How quickly can I get started?', 'Can I export events to our existing stack?']
+const faqs = ['What is Trace.run?', 'Does Trace.run replace my workflow tools?', 'How quickly can I get started?', 'Can I export events to our existing stack?']
 const faqAnswers = [
-  'FlowOps is a production reliability platform for automated workflows. It helps teams build, run, monitor, detect anomalies, investigate failures, and take action from one place.',
-  'No — FlowOps can build workflows itself, and it can also connect to workflows you already run through supported integrations, webhooks, and HTTP APIs.',
-  'Start by building a workflow in FlowOps, or send execution events from an existing system through a webhook or HTTP API.',
-  'Yes. FlowOps supports webhooks and HTTP APIs, with Slack available for operational notifications.',
+  'Trace.run is a production reliability platform for automated workflows. It helps teams build, run, monitor, detect anomalies, investigate failures, and take action from one place.',
+  'No — Trace.run can build workflows itself, and it can also connect to workflows you already run through supported integrations, webhooks, and HTTP APIs.',
+  'Start by building a workflow in Trace.run, or send execution events from an existing system through a webhook or HTTP API.',
+  'Yes. Trace.run supports webhooks and HTTP APIs, with Slack available for operational notifications.',
 ]
 const integrationGroups = [
   { title: 'Workflow tools', icon: Boxes, items: ['n8n', 'Zapier', 'Make'] },
@@ -407,7 +407,7 @@ function DiagnosePanel() {
       <div className="reliability-control-plane">
         <div className="rcp-top">
           <div>
-            <p className="tiny">FLOWOPS / INCIDENT INVESTIGATION · EXAMPLE</p>
+            <p className="tiny">TRACE.RUN / INCIDENT INVESTIGATION · EXAMPLE</p>
             <h2>Your workflows have a nervous system.</h2>
           </div>
           <div className="rcp-live"><i /> LIVE SIGNALS</div>
@@ -442,7 +442,7 @@ function DiagnosePanel() {
         </div>
 
         <div className="rcp-section-head">
-          <span>WHAT FLOWOPS SEES</span>
+          <span>WHAT TRACE.RUN SEES</span>
           <small>correlated automatically</small>
         </div>
 
@@ -527,7 +527,7 @@ export default function FlowOpsClean() {
 
   return (
     <main>
-      <div className="announcement"><span>NEW</span> FlowOps incident intelligence is now in private beta <ArrowRight size={13} /></div>
+      <div className="announcement"><span>NEW</span> Trace.run incident intelligence is now in private beta <ArrowRight size={13} /></div>
       <header className={scrolled ? 'is-scrolled' : ''}>
         <Logo />
         <nav><a href="#workflow-builder">Builder</a><a href="#platform">Platform</a><a href="#integrations">Integrations</a><a href="#security">Security</a><a href="#faq">FAQs</a></nav>
@@ -823,7 +823,7 @@ export default function FlowOpsClean() {
               </div>
 
               <div className="mm-insight">
-                <span>FLOWOPS SIGNAL</span>
+                <span>Trace.run SIGNAL</span>
                 <p>Inventory sync latency is <b>14× above baseline</b>. The increase started 18 minutes after the latest warehouse deployment.</p>
                 <a href="#get-started">Inspect execution <ArrowRight size={12} /></a>
               </div>
@@ -874,7 +874,7 @@ export default function FlowOpsClean() {
 
           <div className="layer-flowops">
             <div className="layer-flowops-brand">
-              <span>FLOWOPS</span>
+              <span>Trace.run</span>
               <b>WORKFLOW PLATFORM</b>
             </div>
             <div className="layer-capabilities">
@@ -950,7 +950,7 @@ export default function FlowOpsClean() {
 
       <section id="outcomes" className="flowops-outcomes-section">
         <Reveal className="reveal-fade outcomes-intro">
-          <div className="eyebrow">What changes with FlowOps</div>
+          <div className="eyebrow">What changes with Trace.run</div>
           <h2>Less time hunting.<br /><em>More time fixing.</em></h2>
           <p>Reliability becomes something your team can operate, not something they discover after the workflow has already failed.</p>
         </Reveal>
@@ -1197,9 +1197,9 @@ export default function FlowOpsClean() {
         <div className="get-started-overlay" aria-hidden="true" />
 
         <Reveal className="get-started-content">
-          <div className="eyebrow">Get started with FlowOps</div>
+          <div className="eyebrow">Get started with Trace.run</div>
           <h2>Build every workflow.<br /><em>Trust every run.</em></h2>
-          <p>Build from scratch or connect what you already have. FlowOps gives every workflow the execution visibility and reliability context it needs to run in production.</p>
+          <p>Build from scratch or connect what you already have. Trace.run gives every workflow the execution visibility and reliability context it needs to run in production.</p>
 
           <div className="get-started-actions">
             <a href="/signup" className="btn btn-primary">Start building <ArrowRight size={15} /></a>

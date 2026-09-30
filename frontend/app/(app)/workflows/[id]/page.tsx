@@ -1,15 +1,14 @@
 "use client";
-
 import * as React from "react";
-
 import { useParams, useRouter } from "next/navigation";
-
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-
 import {
   Background,
+  BackgroundVariant,
+  ConnectionLineType,
   Controls,
   MiniMap,
+  Panel,
   ReactFlow,
   ReactFlowProvider,
   addEdge,
@@ -20,11 +19,8 @@ import {
   type NodeTypes,
   type OnSelectionChangeParams,
 } from "@xyflow/react";
-
 import "@xyflow/react/dist/style.css";
-
 import { toast } from "sonner";
-
 import {
   fetchNodeTypes,
   fetchWorkflow,
@@ -34,18 +30,16 @@ import {
   saveWorkflowGraph,
   updateWorkflow,
   validateWorkflow,
+  deleteWorkflow,
 } from "@/lib/api";
-
 import type {
   GenerateWorkflowResult,
   NodeDefinition,
   ValidationResult,
   WorkflowDetail,
 } from "@/types";
-
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-
 import {
   DND_MIME,
   ErrorNodesContext,
@@ -55,11 +49,9 @@ import {
   type FlowEdge,
   type FlowNode as FlowNodeType,
 } from "@/components/app/builder/shared";
-
 import { WorkflowHeader } from "@/components/app/workflow-header";
 import { WorkflowExecutionsView } from "@/components/app/workflow-executions-view";
 import { WorkflowAnomaliesView } from "@/components/app/workflow-anomalies-view";
-
 import { FlowNode, NodeDefsContext } from "@/components/app/builder/flow-node";
 import { NodePalette } from "@/components/app/builder/node-palette";
 import { ConfigPanel } from "@/components/app/builder/config-panel";
@@ -68,695 +60,682 @@ import { ValidationPanel } from "@/components/app/builder/validation-panel";
 import { PublishDialog } from "@/components/app/builder/publish-dialog";
 import { GenerateWorkflowDialog } from "@/components/app/builder/generate-workflow-dialog";
 import { WebhookDialog } from "@/components/app/builder/webhook-dialog";
-
 import { hasRole, useAuthStore } from "@/lib/auth-store";
-
-/* ================================================================
-   Layout configuration
-   ================================================================ */
-
-/* ================================================================
-   Layout configuration
-   ================================================================ */
 
 const LAYOUT = {
   nodeWidth: 180,
   nodeHeight: 84,
-
-  horizontalGap: 110,
-  verticalGap: 72,
-
-  componentGap: 220,
-
-  topPadding: 80,
-  leftPadding: 80,
+  horizontalGap: 120,
+  verticalGap: 56,
+  componentGap: 80,
+  topPadding: 60,
+  leftPadding: 60,
 };
 
-/* ================================================================
-   Production Workflow Layout
-   ================================================================ */
+const LANE = {
+  height: 8,
+  gap: 16,
+};
+
+function compareText(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+function nodeSize(node: FlowNodeType): { width: number; height: number } {
+  const width = node.measured?.width ?? node.width ?? LAYOUT.nodeWidth;
+  const height = node.measured?.height ?? node.height ?? LAYOUT.nodeHeight;
+
+  return {
+    width: Math.max(1, width),
+    height: Math.max(1, height),
+  };
+}
 
 function layoutWorkflow(
   nodes: FlowNodeType[],
   edges: FlowEdge[],
 ): FlowNodeType[] {
-  const LAYOUT = {
-    nodeWidth: 180,
-    nodeHeight: 84,
-    horizontalGap: 110,
-    verticalGap: 72,
-    componentGap: 220,
-    topPadding: 80,
-    leftPadding: 80,
-  };
-
   if (nodes.length === 0) {
     return [];
   }
 
-  const nodeById = new Map(
-    nodes.map((node) => [
-      node.id,
-      node,
-    ]),
-  );
-
-  const outgoing =
-    new Map<string, string[]>();
-
-  const incoming =
-    new Map<string, string[]>();
-
-  const undirected =
-    new Map<string, Set<string>>();
+  const nodeById = new Map<string, FlowNodeType>();
+  const sizeById = new Map<string, { width: number; height: number }>();
 
   for (const node of nodes) {
-    outgoing.set(node.id, []);
-    incoming.set(node.id, []);
-    undirected.set(
-      node.id,
-      new Set(),
-    );
+    nodeById.set(node.id, node);
+    sizeById.set(node.id, nodeSize(node));
   }
+
+  const labelOf = (id: string): string =>
+    String(nodeById.get(id)?.data?.label ?? id);
+
+  const compareIds = (a: string, b: string): number =>
+    compareText(labelOf(a), labelOf(b)) || compareText(a, b);
+
+  const pairKey = (a: string, b: string): string => `${a}\u0000${b}`;
+
+  const pairs: Array<[string, string]> = [];
+  const seenPairs = new Set<string>();
 
   for (const edge of edges) {
     if (
+      edge.source === edge.target ||
       !nodeById.has(edge.source) ||
       !nodeById.has(edge.target)
     ) {
       continue;
     }
 
-    outgoing
-      .get(edge.source)!
-      .push(edge.target);
+    const key = pairKey(edge.source, edge.target);
 
-    incoming
-      .get(edge.target)!
-      .push(edge.source);
+    if (seenPairs.has(key)) {
+      continue;
+    }
 
-    undirected
-      .get(edge.source)!
-      .add(edge.target);
-
-    undirected
-      .get(edge.target)!
-      .add(edge.source);
+    seenPairs.add(key);
+    pairs.push([edge.source, edge.target]);
   }
 
-  /* ------------------------------------------------------------
-     Connected components
-     ------------------------------------------------------------ */
+  const undirected = new Map<string, string[]>();
 
-  const components: string[][] = [];
+  for (const node of nodes) {
+    undirected.set(node.id, []);
+  }
+
+  for (const [source, target] of pairs) {
+    undirected.get(source)!.push(target);
+    undirected.get(target)!.push(source);
+  }
+
   const visited = new Set<string>();
+  const components: string[][] = [];
 
   for (const node of nodes) {
     if (visited.has(node.id)) {
       continue;
     }
 
-    const component: string[] = [];
-    const queue = [node.id];
+    const members: string[] = [];
+    const stack = [node.id];
 
     visited.add(node.id);
 
-    while (queue.length > 0) {
-      const current = queue.shift()!;
+    while (stack.length > 0) {
+      const current = stack.pop()!;
 
-      component.push(current);
+      members.push(current);
 
-      for (
-        const next of
-          undirected.get(current) ?? []
-      ) {
+      for (const next of undirected.get(current) ?? []) {
         if (visited.has(next)) {
           continue;
         }
 
         visited.add(next);
-        queue.push(next);
+        stack.push(next);
       }
     }
 
-    components.push(component);
+    members.sort(compareIds);
+    components.push(members);
   }
 
-  const positions =
-    new Map<
-      string,
-      {
-        x: number;
-        y: number;
-      }
-    >();
+  components.sort(
+    (a, b) => b.length - a.length || compareIds(a[0], b[0]),
+  );
 
-  let componentOffsetX =
-    LAYOUT.leftPadding;
+  const componentIndex = new Map<string, number>();
 
-  /* ============================================================
-     Layout each component
-     ============================================================ */
+  components.forEach((members, index) => {
+    for (const id of members) {
+      componentIndex.set(id, index);
+    }
+  });
 
-  for (const component of components) {
-    const componentSet =
-      new Set(component);
+  const pairsByComponent: Array<Array<[string, string]>> = components.map(
+    () => [],
+  );
 
-    /* ----------------------------------------------------------
-       Calculate levels
-       ---------------------------------------------------------- */
+  for (const pair of pairs) {
+    pairsByComponent[componentIndex.get(pair[0])!].push(pair);
+  }
 
-    const indegree =
-      new Map<string, number>();
+  const layoutComponent = (
+    ids: string[],
+    componentPairs: Array<[string, string]>,
+  ): {
+    positions: Map<string, { x: number; y: number }>;
+    height: number;
+  } => {
+    const succ = new Map<string, string[]>();
+    const pred = new Map<string, string[]>();
 
-    const level =
-      new Map<string, number>();
-
-    for (const id of component) {
-      const degree = (
-        incoming.get(id) ?? []
-      ).filter((source) =>
-        componentSet.has(source),
-      ).length;
-
-      indegree.set(id, degree);
-      level.set(id, 0);
+    for (const id of ids) {
+      succ.set(id, []);
+      pred.set(id, []);
     }
 
-    const queue =
-      component
-        .filter(
-          (id) =>
-            (indegree.get(id) ?? 0) === 0,
-        )
-        .sort((a, b) =>
-          a.localeCompare(b),
+    for (const [source, target] of componentPairs) {
+      succ.get(source)!.push(target);
+      pred.get(target)!.push(source);
+    }
+
+    const color = new Map<string, number>();
+    const reversed = new Set<string>();
+
+    const visit = (id: string) => {
+      color.set(id, 1);
+
+      for (const next of succ.get(id)!) {
+        const state = color.get(next) ?? 0;
+
+        if (state === 1) {
+          reversed.add(pairKey(id, next));
+        } else if (state === 0) {
+          visit(next);
+        }
+      }
+
+      color.set(id, 2);
+    };
+
+    const startOrder = [
+      ...ids.filter((id) => pred.get(id)!.length === 0),
+      ...ids.filter((id) => pred.get(id)!.length > 0),
+    ];
+
+    for (const id of startOrder) {
+      if (!color.has(id)) {
+        visit(id);
+      }
+    }
+
+    const dagSucc = new Map<string, string[]>();
+    const dagPred = new Map<string, string[]>();
+
+    for (const id of ids) {
+      dagSucc.set(id, []);
+      dagPred.set(id, []);
+    }
+
+    const dagSeen = new Set<string>();
+
+    for (const [source, target] of componentPairs) {
+      const isReversed = reversed.has(pairKey(source, target));
+      const from = isReversed ? target : source;
+      const to = isReversed ? source : target;
+      const key = pairKey(from, to);
+
+      if (dagSeen.has(key)) {
+        continue;
+      }
+
+      dagSeen.add(key);
+      dagSucc.get(from)!.push(to);
+      dagPred.get(to)!.push(from);
+    }
+
+    const layerOf = new Map<string, number>();
+    const indegree = new Map<string, number>();
+
+    for (const id of ids) {
+      layerOf.set(id, 0);
+      indegree.set(id, dagPred.get(id)!.length);
+    }
+
+    const topo: string[] = [];
+    const queue = ids.filter((id) => indegree.get(id) === 0);
+
+    for (let head = 0; head < queue.length; head++) {
+      const current = queue[head];
+
+      topo.push(current);
+
+      for (const next of dagSucc.get(current)!) {
+        layerOf.set(
+          next,
+          Math.max(layerOf.get(next)!, layerOf.get(current)! + 1),
         );
 
-    const processed =
-      new Set<string>();
+        const remaining = indegree.get(next)! - 1;
 
-    while (queue.length > 0) {
-      const current =
-        queue.shift()!;
+        indegree.set(next, remaining);
 
-      processed.add(current);
+        if (remaining === 0) {
+          queue.push(next);
+        }
+      }
+    }
 
-      const currentLevel =
-        level.get(current) ?? 0;
+    if (topo.length < ids.length) {
+      const inTopo = new Set(topo);
 
-      for (
-        const target of
-          outgoing.get(current) ?? []
-      ) {
-        if (
-          !componentSet.has(target)
-        ) {
+      for (const id of ids) {
+        if (!inTopo.has(id)) {
+          topo.push(id);
+        }
+      }
+    }
+
+    for (let i = topo.length - 1; i >= 0; i--) {
+      const id = topo[i];
+      const outs = dagSucc.get(id)!;
+
+      if (dagPred.get(id)!.length === 0 && outs.length > 0) {
+        let earliest = Infinity;
+
+        for (const next of outs) {
+          earliest = Math.min(earliest, layerOf.get(next)!);
+        }
+
+        if (Number.isFinite(earliest) && earliest - 1 > layerOf.get(id)!) {
+          layerOf.set(id, earliest - 1);
+        }
+      }
+    }
+
+    const aLayer = new Map<string, number>();
+    const aHeight = new Map<string, number>();
+    const aReal = new Set<string>();
+    const aSucc = new Map<string, string[]>();
+    const aPred = new Map<string, string[]>();
+
+    const addAug = (
+      id: string,
+      layer: number,
+      height: number,
+      real: boolean,
+    ) => {
+      aLayer.set(id, layer);
+      aHeight.set(id, height);
+      aSucc.set(id, []);
+      aPred.set(id, []);
+
+      if (real) {
+        aReal.add(id);
+      }
+    };
+
+    const link = (from: string, to: string) => {
+      aSucc.get(from)!.push(to);
+      aPred.get(to)!.push(from);
+    };
+
+    for (const id of ids) {
+      addAug(id, layerOf.get(id)!, sizeById.get(id)!.height, true);
+    }
+
+    let laneCount = 0;
+
+    for (const from of ids) {
+      for (const to of dagSucc.get(from)!) {
+        const fromLayer = layerOf.get(from)!;
+        const toLayer = layerOf.get(to)!;
+
+        if (toLayer - fromLayer < 1) {
           continue;
         }
 
-        level.set(
-          target,
-          Math.max(
-            level.get(target) ?? 0,
-            currentLevel + 1,
-          ),
-        );
+        let previous = from;
 
-        const nextDegree =
-          (indegree.get(target) ?? 0) - 1;
+        for (let l = fromLayer + 1; l < toLayer; l++) {
+          const laneId = `\u0000lane:${laneCount++}`;
 
-        indegree.set(
-          target,
-          nextDegree,
-        );
+          addAug(laneId, l, LANE.height, false);
+          link(previous, laneId);
+          previous = laneId;
+        }
 
-        if (nextDegree === 0) {
-          queue.push(target);
+        link(previous, to);
+      }
+    }
+
+    let layerCount = 1;
+
+    for (const layer of aLayer.values()) {
+      layerCount = Math.max(layerCount, layer + 1);
+    }
+
+    const rank = new Map<string, number>();
+
+    const order = (id: string) => {
+      rank.set(id, rank.size);
+
+      for (const next of aSucc.get(id)!) {
+        if (!rank.has(next)) {
+          order(next);
         }
       }
-    }
-
-    /* ----------------------------------------------------------
-       Cycle fallback
-       ---------------------------------------------------------- */
-
-    let deepestLevel = 0;
-
-    for (const id of component) {
-      deepestLevel = Math.max(
-        deepestLevel,
-        level.get(id) ?? 0,
-      );
-    }
-
-    component
-      .filter(
-        (id) => !processed.has(id),
-      )
-      .forEach((id, index) => {
-        level.set(
-          id,
-          deepestLevel + index + 1,
-        );
-      });
-
-    /* ----------------------------------------------------------
-       Group by level
-       ---------------------------------------------------------- */
-
-    const levels =
-      new Map<number, string[]>();
-
-    for (const id of component) {
-      const currentLevel =
-        level.get(id) ?? 0;
-
-      if (!levels.has(currentLevel)) {
-        levels.set(currentLevel, []);
-      }
-
-      levels
-        .get(currentLevel)!
-        .push(id);
-    }
-
-    const levelNumbers = [
-      ...levels.keys(),
-    ].sort((a, b) => a - b);
-
-    /* ----------------------------------------------------------
-       Deterministic branch ordering
-       ---------------------------------------------------------- */
-
-    for (const levelNumber of levelNumbers) {
-      const ids =
-        levels.get(levelNumber)!;
-
-      ids.sort((a, b) => {
-        const aNode =
-          nodeById.get(a);
-
-        const bNode =
-          nodeById.get(b);
-
-        const aLabel =
-          String(
-            aNode?.data?.label ?? a,
-          );
-
-        const bLabel =
-          String(
-            bNode?.data?.label ?? b,
-          );
-
-        return (
-          aLabel.localeCompare(bLabel) ||
-          a.localeCompare(b)
-        );
-      });
-    }
-
-    /* ----------------------------------------------------------
-       Calculate subtree heights.
-
-       This makes branch nodes reserve space for their entire
-       downstream branch instead of independently centering
-       every column.
-       ---------------------------------------------------------- */
-
-    const subtreeHeight =
-      new Map<string, number>();
-
-    const visiting =
-      new Set<string>();
-
-    const calculateHeight = (
-      id: string,
-    ): number => {
-      const cached =
-        subtreeHeight.get(id);
-
-      if (cached !== undefined) {
-        return cached;
-      }
-
-      if (visiting.has(id)) {
-        return LAYOUT.nodeHeight;
-      }
-
-      visiting.add(id);
-
-      const children =
-        (outgoing.get(id) ?? [])
-          .filter((child) =>
-            componentSet.has(child),
-          );
-
-      if (children.length === 0) {
-        visiting.delete(id);
-
-        subtreeHeight.set(
-          id,
-          LAYOUT.nodeHeight,
-        );
-
-        return LAYOUT.nodeHeight;
-      }
-
-      const childHeights =
-        children.map(
-          calculateHeight,
-        );
-
-      const childrenHeight =
-        childHeights.reduce(
-          (sum, height) =>
-            sum + height,
-          0,
-        ) +
-        Math.max(
-          0,
-          children.length - 1,
-        ) *
-          LAYOUT.verticalGap;
-
-      const height =
-        Math.max(
-          LAYOUT.nodeHeight,
-          childrenHeight,
-        );
-
-      visiting.delete(id);
-
-      subtreeHeight.set(
-        id,
-        height,
-      );
-
-      return height;
     };
 
-    for (const id of component) {
-      calculateHeight(id);
+    for (const id of ids) {
+      if (aPred.get(id)!.length === 0 && !rank.has(id)) {
+        order(id);
+      }
     }
 
-    /* ----------------------------------------------------------
-       Find roots
-       ---------------------------------------------------------- */
-
-    const roots =
-      component.filter((id) => {
-        const parents =
-          (incoming.get(id) ?? [])
-            .filter((parent) =>
-              componentSet.has(parent),
-            );
-
-        return parents.length === 0;
-      });
-
-    /*
-     * In a cyclic component there may be no root.
-     * Use the first node as a deterministic fallback.
-     */
-    if (roots.length === 0) {
-      roots.push(
-        [...component].sort(
-          (a, b) =>
-            a.localeCompare(b),
-        )[0],
-      );
+    for (const id of aLayer.keys()) {
+      if (!rank.has(id)) {
+        order(id);
+      }
     }
 
-    /* ----------------------------------------------------------
-       Place tree recursively
-       ---------------------------------------------------------- */
+    const layers: string[][] = Array.from({ length: layerCount }, () => []);
 
-    const placed =
-      new Set<string>();
+    for (const [id, layer] of aLayer) {
+      layers[layer].push(id);
+    }
 
-    const placeNode = (
-      id: string,
-      x: number,
-      centerY: number,
-    ) => {
-      if (placed.has(id)) {
-        return;
+    for (const layer of layers) {
+      layer.sort((a, b) => rank.get(a)! - rank.get(b)!);
+    }
+
+    const pos = new Map<string, number>();
+
+    const refreshPositions = () => {
+      for (const layer of layers) {
+        layer.forEach((id, index) => pos.set(id, index));
       }
-
-      placed.add(id);
-
-      positions.set(id, {
-        x,
-        y:
-          centerY -
-          LAYOUT.nodeHeight / 2,
-      });
-
-      const children =
-        (outgoing.get(id) ?? [])
-          .filter((child) =>
-            componentSet.has(child),
-          );
-
-      if (children.length === 0) {
-        return;
-      }
-
-      const childHeights =
-        children.map(
-          (child) =>
-            subtreeHeight.get(
-              child,
-            ) ??
-            LAYOUT.nodeHeight,
-        );
-
-      const totalHeight =
-        childHeights.reduce(
-          (sum, height) =>
-            sum + height,
-          0,
-        ) +
-        Math.max(
-          0,
-          children.length - 1,
-        ) *
-          LAYOUT.verticalGap;
-
-      let childTop =
-        centerY -
-        totalHeight / 2;
-
-      children.forEach(
-        (child, index) => {
-          const height =
-            childHeights[index];
-
-          const childCenter =
-            childTop +
-            height / 2;
-
-          placeNode(
-            child,
-            x +
-              LAYOUT.nodeWidth +
-              LAYOUT.horizontalGap,
-            childCenter,
-          );
-
-          childTop +=
-            height +
-            LAYOUT.verticalGap;
-        },
-      );
     };
 
-    /* ----------------------------------------------------------
-       Place roots
-       ---------------------------------------------------------- */
+    refreshPositions();
 
-    let rootY =
-      LAYOUT.topPadding;
+    const countCrossings = (): number => {
+      let total = 0;
 
-    for (const root of roots) {
-      const height =
-        subtreeHeight.get(root) ??
-        LAYOUT.nodeHeight;
+      for (let l = 0; l < layerCount - 1; l++) {
+        const segments: Array<[number, number]> = [];
 
-      placeNode(
-        root,
-        componentOffsetX,
-        rootY +
-          height / 2,
-      );
+        for (const id of layers[l]) {
+          for (const next of aSucc.get(id)!) {
+            segments.push([pos.get(id)!, pos.get(next)!]);
+          }
+        }
 
-      rootY +=
-        height +
-        LAYOUT.verticalGap;
-    }
+        for (let i = 0; i < segments.length; i++) {
+          for (let j = i + 1; j < segments.length; j++) {
+            if (
+              (segments[i][0] - segments[j][0]) *
+                (segments[i][1] - segments[j][1]) <
+              0
+            ) {
+              total++;
+            }
+          }
+        }
+      }
 
-    /* ----------------------------------------------------------
-       Place any nodes not reached by recursive traversal.
+      return total;
+    };
 
-       This handles unusual graphs/cycles safely.
-       ---------------------------------------------------------- */
+    const sweep = (down: boolean) => {
+      const neighborMap = down ? aPred : aSucc;
 
-    const unplaced =
-      component.filter(
-        (id) => !placed.has(id),
-      );
+      const start = down ? 1 : layerCount - 2;
+      const end = down ? layerCount : -1;
+      const step = down ? 1 : -1;
+
+      for (let l = start; l !== end; l += step) {
+        const keyed = layers[l].map((id, index) => {
+          const ns = neighborMap.get(id)!;
+
+          let bary = index;
+
+          if (ns.length > 0) {
+            let sum = 0;
+
+            for (const n of ns) {
+              sum += pos.get(n)!;
+            }
+
+            bary = sum / ns.length;
+          }
+
+          return { id, bary, index };
+        });
+
+        keyed.sort((a, b) => a.bary - b.bary || a.index - b.index);
+
+        layers[l] = keyed.map((entry) => entry.id);
+
+        layers[l].forEach((id, index) => pos.set(id, index));
+      }
+    };
+
+    let bestCrossings = countCrossings();
+    let bestLayers = layers.map((layer) => [...layer]);
 
     for (
-      const id of unplaced
+      let iteration = 0;
+      iteration < 16 && bestCrossings > 0;
+      iteration++
     ) {
-      const currentLevel =
-        level.get(id) ?? 0;
+      for (const down of [true, false]) {
+        sweep(down);
 
-      const sameLevel =
-        component.filter(
-          (candidate) =>
-            (level.get(candidate) ?? 0) ===
-              currentLevel &&
-            placed.has(candidate),
-        );
+        const crossings = countCrossings();
 
-      positions.set(id, {
-        x:
-          componentOffsetX +
-          currentLevel *
-            (
-              LAYOUT.nodeWidth +
-              LAYOUT.horizontalGap
-            ),
-        y:
-          LAYOUT.topPadding +
-          sameLevel.length *
-            (
-              LAYOUT.nodeHeight +
-              LAYOUT.verticalGap
-            ),
+        if (crossings < bestCrossings) {
+          bestCrossings = crossings;
+          bestLayers = layers.map((layer) => [...layer]);
+        }
+      }
+    }
+
+    bestLayers.forEach((layer, index) => {
+      layers[index] = layer;
+    });
+
+    refreshPositions();
+
+    const separation = (a: string, b: string): number =>
+      (aHeight.get(a)! + aHeight.get(b)!) / 2 +
+      (aReal.has(a) && aReal.has(b) ? LAYOUT.verticalGap : LANE.gap);
+
+    const y = new Map<string, number>();
+
+    for (const layer of layers) {
+      const offsets: number[] = [];
+      let cursor = 0;
+
+      layer.forEach((id, index) => {
+        if (index > 0) {
+          cursor += separation(layer[index - 1], id);
+        }
+
+        offsets.push(cursor);
       });
 
-      placed.add(id);
+      layer.forEach((id, index) => {
+        y.set(id, offsets[index] - cursor / 2);
+      });
     }
 
-    /* ----------------------------------------------------------
-       Component width
-       ---------------------------------------------------------- */
+    const resolveLayer = (layer: string[], desired: number[]) => {
+      const count = layer.length;
 
-    const maxLevel =
-      Math.max(...levelNumbers);
-
-    const componentWidth =
-      (maxLevel + 1) *
-        (
-          LAYOUT.nodeWidth +
-          LAYOUT.horizontalGap
-        ) -
-      LAYOUT.horizontalGap;
-
-    componentOffsetX +=
-      componentWidth +
-      LAYOUT.componentGap;
-  }
-
-  /* ------------------------------------------------------------
-     Final collision cleanup
-     ------------------------------------------------------------ */
-
-  for (const component of components) {
-    const byLevel =
-      new Map<
-        number,
-        FlowNodeType["id"][]
-      >();
-
-    for (const id of component) {
-      const node =
-        nodeById.get(id);
-
-      if (!node) continue;
-
-      const levelIndex = Math.round(
-        (
-          (
-            positions.get(id)?.x ??
-            LAYOUT.leftPadding
-          ) -
-          LAYOUT.leftPadding
-        ) /
-          (
-            LAYOUT.nodeWidth +
-            LAYOUT.horizontalGap
-          ),
-      );
-
-      if (!byLevel.has(levelIndex)) {
-        byLevel.set(levelIndex, []);
+      if (count === 0) {
+        return;
       }
 
-      byLevel
-        .get(levelIndex)!
-        .push(id);
-    }
+      const offsets: number[] = [0];
 
-    for (const ids of byLevel.values()) {
-      ids.sort(
-        (a, b) =>
-          (
-            positions.get(a)?.y ??
-            0
-          ) -
-          (
-            positions.get(b)?.y ??
-            0
-          ),
-      );
+      for (let i = 1; i < count; i++) {
+        offsets.push(
+          offsets[i - 1] +
+            separation(layer[i - 1], layer[i]),
+        );
+      }
 
-      for (
-        let index = 1;
-        index < ids.length;
-        index++
-      ) {
-        const previous =
-          positions.get(
-            ids[index - 1],
-          );
+      const blocks: Array<{
+        sum: number;
+        count: number;
+        start: number;
+      }> = [];
 
-        const current =
-          positions.get(
-            ids[index],
-          );
+      for (let i = 0; i < count; i++) {
+        blocks.push({
+          sum: desired[i] - offsets[i],
+          count: 1,
+          start: i,
+        });
 
-        if (!previous || !current) {
-          continue;
+        while (blocks.length > 1) {
+          const last = blocks[blocks.length - 1];
+          const previous = blocks[blocks.length - 2];
+
+          if (
+            previous.sum / previous.count <=
+            last.sum / last.count
+          ) {
+            break;
+          }
+
+          previous.sum += last.sum;
+          previous.count += last.count;
+
+          blocks.pop();
         }
+      }
 
-        const minimumY =
-          previous.y +
-          LAYOUT.nodeHeight +
-          LAYOUT.verticalGap;
+      for (const block of blocks) {
+        const mean = block.sum / block.count;
 
-        if (
-          current.y < minimumY
+        for (
+          let k = block.start;
+          k < block.start + block.count;
+          k++
         ) {
-          positions.set(
-            ids[index],
-            {
-              ...current,
-              y: minimumY,
-            },
-          );
+          y.set(layer[k], mean + offsets[k]);
         }
       }
-    }
-  }
+    };
+        const relax = (l: number) => {
+      const layer = layers[l];
 
-  /* ------------------------------------------------------------
-     Return final nodes
-     ------------------------------------------------------------ */
+      const desired = layer.map((id) => {
+        const ns = [
+          ...aPred.get(id)!,
+          ...aSucc.get(id)!,
+        ];
+
+        if (ns.length === 0) {
+          return y.get(id)!;
+        }
+
+        let sum = 0;
+
+        for (const n of ns) {
+          sum += y.get(n)!;
+        }
+
+        return sum / ns.length;
+      });
+
+      resolveLayer(layer, desired);
+    };
+
+    for (let iteration = 0; iteration < 30; iteration++) {
+      for (let l = 0; l < layerCount; l++) {
+        relax(l);
+      }
+
+      for (let l = layerCount - 1; l >= 0; l--) {
+        relax(l);
+      }
+    }
+
+    const layerWidths = layers.map((layer) =>
+      layer.reduce(
+        (width, id) =>
+          aReal.has(id)
+            ? Math.max(
+                width,
+                sizeById.get(id)!.width,
+              )
+            : width,
+        0,
+      ),
+    );
+
+    const layerX: number[] = [];
+
+    let cursorX = 0;
+
+    layerWidths.forEach((width, index) => {
+      layerX[index] = cursorX;
+      cursorX += width + LAYOUT.horizontalGap;
+    });
+
+    let minTop = Infinity;
+    let maxBottom = -Infinity;
+
+    for (const [id, centerY] of y) {
+      const height = aHeight.get(id)!;
+
+      minTop = Math.min(
+        minTop,
+        centerY - height / 2,
+      );
+
+      maxBottom = Math.max(
+        maxBottom,
+        centerY + height / 2,
+      );
+    }
+
+    const positions = new Map<
+      string,
+      { x: number; y: number }
+    >();
+
+    for (const id of ids) {
+      positions.set(id, {
+        x: Math.round(
+          layerX[aLayer.get(id)!],
+        ),
+        y: Math.round(
+          y.get(id)! -
+            aHeight.get(id)! / 2 -
+            minTop,
+        ),
+      });
+    }
+
+    return {
+      positions,
+      height: maxBottom - minTop,
+    };
+  };
+
+  const positions = new Map<
+    string,
+    { x: number; y: number }
+  >();
+
+  let cursorY = LAYOUT.topPadding;
+
+  components.forEach((members, index) => {
+    const result = layoutComponent(
+      members,
+      pairsByComponent[index],
+    );
+
+    for (const [id, position] of result.positions) {
+      positions.set(id, {
+        x:
+          LAYOUT.leftPadding +
+          position.x,
+        y: Math.round(
+          cursorY + position.y,
+        ),
+      });
+    }
+
+    cursorY +=
+      result.height +
+      LAYOUT.componentGap;
+  });
 
   return nodes.map((node) => ({
     ...node,
@@ -768,10 +747,6 @@ function layoutWorkflow(
   }));
 }
 
-/* ================================================================
-   Edge routing
-   ================================================================ */
-
 function layoutWorkflowEdges(
   nodes: FlowNodeType[],
   edges: FlowEdge[],
@@ -780,52 +755,18 @@ function layoutWorkflowEdges(
     return [];
   }
 
-  const nodeById = new Map(
-    nodes.map((node) => [
-      node.id,
-      node,
-    ]),
-  );
+  const nodeById = new Map<
+    string,
+    FlowNodeType
+  >();
 
-  const outgoingCount =
-    new Map<string, number>();
-
-  const incomingCount =
-    new Map<string, number>();
-
-  for (const edge of edges) {
-    outgoingCount.set(
-      edge.source,
-      (outgoingCount.get(edge.source) ?? 0) + 1,
-    );
-
-    incomingCount.set(
-      edge.target,
-      (incomingCount.get(edge.target) ?? 0) + 1,
-    );
+  for (const node of nodes) {
+    nodeById.set(node.id, node);
   }
 
-  const xValues = [
-    ...new Set(
-      nodes.map(
-        (node) => node.position.x,
-      ),
-    ),
-  ].sort((a, b) => a - b);
-
-  const xLevel =
-    new Map<number, number>();
-
-  xValues.forEach((x, index) => {
-    xLevel.set(x, index);
-  });
-
   return edges.map((edge) => {
-    const source =
-      nodeById.get(edge.source);
-
-    const target =
-      nodeById.get(edge.target);
+    const source = nodeById.get(edge.source);
+    const target = nodeById.get(edge.target);
 
     if (!source || !target) {
       return {
@@ -835,67 +776,200 @@ function layoutWorkflowEdges(
       };
     }
 
-    const sourceBranches =
-      outgoingCount.get(edge.source) ?? 0;
-
-    const targetMerges =
-      incomingCount.get(edge.target) ?? 0;
-
-    const sourceLevel =
-      xLevel.get(
-        source.position.x,
-      ) ?? 0;
-
-    const targetLevel =
-      xLevel.get(
-        target.position.x,
-      ) ?? 0;
-
-    const isSimpleForward =
-      sourceBranches === 1 &&
-      targetMerges === 1 &&
-      targetLevel ===
-      sourceLevel + 1;
-
     return {
       ...edge,
-
-      type: isSimpleForward
-        ? "straight"
-        : "default",
-
+      type: "default",
       animated: false,
     };
   });
 }
 
-/* ================================================================
-   Page shell
-   ================================================================ */
+function shouldAutoLayout(
+  nodes: FlowNodeType[],
+  laidOut: FlowNodeType[],
+): boolean {
+  if (nodes.length < 2) {
+    return false;
+  }
+
+  for (const node of nodes) {
+    if (
+      !Number.isFinite(node.position?.x) ||
+      !Number.isFinite(node.position?.y)
+    ) {
+      return true;
+    }
+  }
+
+  for (
+    let i = 0;
+    i < nodes.length;
+    i++
+  ) {
+    for (
+      let j = i + 1;
+      j < nodes.length;
+      j++
+    ) {
+      if (
+        Math.abs(
+          nodes[i].position.x -
+            nodes[j].position.x,
+        ) < LAYOUT.nodeWidth &&
+        Math.abs(
+          nodes[i].position.y -
+            nodes[j].position.y,
+        ) < LAYOUT.nodeHeight
+      ) {
+        return true;
+      }
+    }
+  }
+
+  const boxArea = (
+    list: FlowNodeType[],
+  ): number => {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    for (const node of list) {
+      minX = Math.min(
+        minX,
+        node.position.x,
+      );
+
+      minY = Math.min(
+        minY,
+        node.position.y,
+      );
+
+      maxX = Math.max(
+        maxX,
+        node.position.x +
+          LAYOUT.nodeWidth,
+      );
+
+      maxY = Math.max(
+        maxY,
+        node.position.y +
+          LAYOUT.nodeHeight,
+      );
+    }
+
+    return (
+      (maxX - minX) *
+      (maxY - minY)
+    );
+  };
+
+  return (
+    boxArea(nodes) >
+    boxArea(laidOut) * 3
+  );
+}
+
+function prepareInitialFlow(
+  nodes: FlowNodeType[],
+  edges: FlowEdge[],
+): {
+  nodes: FlowNodeType[];
+  edges: FlowEdge[];
+} {
+  const laidOut = layoutWorkflow(
+    nodes,
+    edges,
+  );
+
+  if (!shouldAutoLayout(nodes, laidOut)) {
+    return {
+      nodes,
+      edges,
+    };
+  }
+
+  return {
+    nodes: laidOut,
+    edges: layoutWorkflowEdges(
+      laidOut,
+      edges,
+    ),
+  };
+}
 
 export default function WorkflowDetailPage() {
-  const params = useParams<{ id: string }>();
-  const id = params.id;
-  const queryClient = useQueryClient();
+  const params =
+    useParams<{ id: string }>();
 
-  // IMPORTANT:
-  // This hook MUST be before any conditional return.
+  const id = params.id;
+
+  const queryClient =
+    useQueryClient();
+
+  const router = useRouter();
+
   const [activeView, setActiveView] =
-    React.useState<"editor" | "executions" | "anomalies">("editor");
+    React.useState<
+      "editor" | "executions" | "anomalies"
+    >("editor");
+
+  const [
+    builderHeaderState,
+    setBuilderHeaderState,
+  ] =
+    React.useState<BuilderHeaderState>({
+      dirty: false,
+      savePending: false,
+      publishPending: false,
+      hasWebhookTrigger: false,
+    });
+
+  const builderRef =
+    React.useRef<BuilderHandle>(null);
+
+  const deleteMutation =
+    useMutation({
+      mutationFn: () =>
+        deleteWorkflow(id),
+
+      onSuccess: () => {
+        queryClient.removeQueries({
+          queryKey: ["workflow", id],
+        });
+
+        toast.success(
+          "Workflow deleted.",
+        );
+
+        router.push(
+          "/workflows",
+        );
+      },
+
+      onError: (err) =>
+        toast.error(
+          getErrorMessage(err),
+        ),
+    });
 
   const workflowQuery = useQuery({
     queryKey: ["workflow", id],
-    queryFn: () => fetchWorkflow(id),
+    queryFn: () =>
+      fetchWorkflow(id),
     enabled: Boolean(id),
   });
 
   const nodeTypesQuery = useQuery({
     queryKey: ["node-types"],
     queryFn: fetchNodeTypes,
-    staleTime: 5 * 60 * 1000,
+    staleTime:
+      5 * 60 * 1000,
   });
 
-  if (workflowQuery.isPending) {
+  if (
+    workflowQuery.isPending
+  ) {
     return (
       <div className="space-y-3">
         <Skeleton className="h-14 w-full" />
@@ -904,16 +978,22 @@ export default function WorkflowDetailPage() {
     );
   }
 
-  if (workflowQuery.isError) {
+  if (
+    workflowQuery.isError
+  ) {
     return (
       <div className="flex h-[60vh] flex-col items-center justify-center gap-3 text-center">
         <p className="text-sm text-destructive">
-          {getErrorMessage(workflowQuery.error)}
+          {getErrorMessage(
+            workflowQuery.error,
+          )}
         </p>
 
         <Button
           variant="outline"
-          onClick={() => workflowQuery.refetch()}
+          onClick={() =>
+            workflowQuery.refetch()
+          }
         >
           Retry
         </Button>
@@ -921,947 +1001,8 @@ export default function WorkflowDetailPage() {
     );
   }
 
-  const workflow = workflowQuery.data;
-
-  const current = queryClient.getQueryData<WorkflowDetail>([
-    "workflow",
-    workflow.id,
-  ]);
-
-  const status = current?.status ?? workflow.status;
-  const version = current?.latestVersion ?? workflow.latestVersion;
-  const name = current?.name ?? workflow.name;
-  return (
-    <div className="flex h-screen flex-col bg-[#050505]">
-      <WorkflowHeader
-        workflow={workflow}
-        version={version}
-        dirty={false} // TODO: Implement dirty state tracking
-        canRun={version != null}
-        runPending={false} // TODO: Implement runPending state
-        namePending={false} // TODO: Implement namePending state
-        onRename={(n) => {
-          // TODO: Implement rename logic
-        }}
-        onRun={() => {
-          // TODO: Implement run logic
-        }}
-        onGenerate={() => {
-          // TODO: Implement generate logic
-        }}
-        onWebhook={() => {
-          // TODO: Implement webhook logic
-        }}
-        hasWebhookTrigger={false} // TODO: Implement webhook trigger detection
-        activeView={activeView}
-        onViewChange={setActiveView}
-      />
-
-      <div className="flex-1 min-h-0 overflow-hidden bg-[#050505]">
-        {activeView === "editor" ? (
-          // Editor: NO outer padding - uses full available width
-          <ReactFlowProvider>
-            <Builder
-              workflow={workflow}
-              nodeDefs={nodeTypesQuery.data?.nodeTypes ?? []}
-              nodeDefsLoading={nodeTypesQuery.isPending}
-              nodeDefsError={nodeTypesQuery.isError}
-              showToolbar={false} // Toolbar is now in WorkflowHeader
-            />
-          </ReactFlowProvider>
-        ) : activeView === "executions" ? (
-          // Executions: keep existing outer padding
-          <div className="px-2 lg:px-3 pt-3">
-            <WorkflowExecutionsView workflowId={workflow.id} />
-          </div>
-        ) : (
-          // Anomalies: keep existing outer padding
-          <div className="px-2 lg:px-3 pt-3">
-            <WorkflowAnomaliesView workflowId={workflow.id} />
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ================================================================
-   Builder
-   ================================================================ */
-
-interface BuilderProps {
-  workflow: WorkflowDetail;
-  nodeDefs: NodeDefinition[];
-  nodeDefsLoading: boolean;
-  nodeDefsError: boolean;
-  showToolbar?: boolean;
-}
-
-function Builder({
-  workflow,
-  nodeDefs,
-  nodeDefsLoading,
-  nodeDefsError,
-  showToolbar = true,
-}: BuilderProps) {
-  const queryClient = useQueryClient();
-  const router = useRouter();
-
-  const rf = useReactFlow<FlowNodeType, FlowEdge>();
-
-  const wrapperRef =
-    React.useRef<HTMLDivElement>(null);
-
-  /* ================================================================
-     Registry lookups
-     ================================================================ */
-
-  const defsByType = React.useMemo(() => {
-    const map: Record<string, NodeDefinition> = {};
-
-    for (const d of nodeDefs) {
-      map[d.type] = d;
-    }
-
-    return map;
-  }, [nodeDefs]);
-
-  const nodeTypes = React.useMemo<NodeTypes>(() => {
-    const map: NodeTypes = {};
-
-    for (const d of nodeDefs) {
-      map[d.type] = FlowNode;
-    }
-
-    return map;
-  }, [nodeDefs]);
-
-  /* ================================================================
-     Graph state
-     ================================================================ */
-
-  const initial = React.useMemo(
-    () => graphToFlow(workflow.graph),
-    [workflow.graph],
-  );
-
-  const [nodes, setNodes, onNodesChange] =
-    useNodesState<FlowNodeType>(initial.nodes);
-
-  const [edges, setEdges, onEdgesChange] =
-    useEdgesState<FlowEdge>(initial.edges);
-
-  const [selectedId, setSelectedId] =
-    React.useState<string | null>(null);
-
-  const savedRef = React.useRef<string>(
-    JSON.stringify(
-      flowToGraph(
-        initial.nodes,
-        initial.edges,
-      ),
-    ),
-  );
-
-  const [dirty, setDirty] =
-    React.useState(false);
-
-  const recomputeDirty = React.useCallback(
-    (
-      nextNodes: FlowNodeType[],
-      nextEdges: FlowEdge[],
-    ) => {
-      const now = JSON.stringify(
-        flowToGraph(nextNodes, nextEdges),
-      );
-
-      setDirty(now !== savedRef.current);
-    },
-    [],
-  );
-
-  React.useEffect(() => {
-    recomputeDirty(nodes, edges);
-  }, [
-    nodes,
-    edges,
-    recomputeDirty,
-  ]);
-
-  /* ================================================================
-     History
-     ================================================================ */
-
-  interface Snapshot {
-    nodes: FlowNodeType[];
-    edges: FlowEdge[];
-  }
-
-  const past =
-    React.useRef<Snapshot[]>([]);
-
-  const future =
-    React.useRef<Snapshot[]>([]);
-
-  const [, setHistTick] =
-    React.useState(0);
-
-  const snapshot = React.useCallback(
-    (): Snapshot => ({
-      nodes: structuredClone(
-        rf.getNodes(),
-      ),
-      edges: structuredClone(
-        rf.getEdges(),
-      ),
-    }),
-    [rf],
-  );
-
-  const commit = React.useCallback(() => {
-    past.current.push(snapshot());
-
-    if (past.current.length > 100) {
-      past.current.shift();
-    }
-
-    future.current = [];
-
-    setHistTick((t) => t + 1);
-  }, [snapshot]);
-
-  const undo = React.useCallback(() => {
-    const prev = past.current.pop();
-
-    if (!prev) return;
-
-    future.current.push(snapshot());
-
-    setNodes(prev.nodes);
-    setEdges(prev.edges);
-
-    setHistTick((t) => t + 1);
-  }, [
-    snapshot,
-    setNodes,
-    setEdges,
-  ]);
-
-  const redo = React.useCallback(() => {
-    const next = future.current.pop();
-
-    if (!next) return;
-
-    past.current.push(snapshot());
-
-    setNodes(next.nodes);
-    setEdges(next.edges);
-
-    setHistTick((t) => t + 1);
-  }, [
-    snapshot,
-    setNodes,
-    setEdges,
-  ]);
-
-  /* ================================================================
-     Connections
-     ================================================================ */
-
-  const onConnect = React.useCallback(
-    (conn: Connection) => {
-      commit();
-
-      setEdges((eds) =>
-        addEdge(
-          {
-            ...conn,
-            type: "straight",
-            animated: false,
-          },
-          eds,
-        ),
-      );
-    },
-    [commit, setEdges],
-  );
-
-  /* ================================================================
-     Add node
-     ================================================================ */
-
-  const addNode = React.useCallback(
-    (
-      type: string,
-      screenPos?: {
-        x: number;
-        y: number;
-      },
-    ) => {
-      const def = defsByType[type];
-
-      if (!def) return;
-
-      const bounds =
-        wrapperRef.current?.getBoundingClientRect();
-
-      let position: {
-        x: number;
-        y: number;
-      };
-
-      if (screenPos && bounds) {
-        position =
-          rf.screenToFlowPosition({
-            x: screenPos.x,
-            y: screenPos.y,
-          });
-      } else if (nodes.length > 0) {
-        const rightmost = nodes.reduce(
-          (current, node) =>
-            node.position.x >
-              current.position.x
-              ? node
-              : current,
-          nodes[0],
-        );
-
-        position = {
-          x:
-            rightmost.position.x +
-            LAYOUT.nodeWidth +
-            LAYOUT.horizontalGap,
-
-          y: rightmost.position.y,
-        };
-      } else {
-        const center =
-          rf.screenToFlowPosition({
-            x:
-              (bounds?.left ?? 0) +
-              (bounds?.width ?? 800) / 2,
-
-            y:
-              (bounds?.top ?? 0) +
-              (bounds?.height ?? 600) / 2,
-          });
-
-        position = {
-          x:
-            center.x -
-            LAYOUT.nodeWidth / 2,
-
-          y:
-            center.y -
-            LAYOUT.nodeHeight / 2,
-        };
-      }
-
-      const node: FlowNodeType = {
-        id: newNodeId(type),
-        type,
-        position,
-        data: {
-          label: def.label,
-          config: {},
-        },
-      };
-
-      commit();
-
-      setNodes((nds) =>
-        nds.concat(node),
-      );
-
-      setSelectedId(node.id);
-    },
-    [
-      defsByType,
-      nodes,
-      rf,
-      commit,
-      setNodes,
-    ],
-  );
-
-  const onDrop = React.useCallback(
-    (event: React.DragEvent) => {
-      event.preventDefault();
-
-      const type =
-        event.dataTransfer.getData(
-          DND_MIME,
-        );
-
-      if (!type) return;
-
-      addNode(type, {
-        x: event.clientX,
-        y: event.clientY,
-      });
-    },
-    [addNode],
-  );
-
-  const onDragOver = React.useCallback(
-    (event: React.DragEvent) => {
-      event.preventDefault();
-
-      event.dataTransfer.dropEffect =
-        "move";
-    },
-    [],
-  );
-
-  /* ================================================================
-     Selection
-     ================================================================ */
-
-  const onSelectionChange =
-    React.useCallback(
-      ({
-        nodes: selected,
-      }: OnSelectionChangeParams) => {
-        setSelectedId(
-          selected.length === 1
-            ? selected[0].id
-            : null,
-        );
-      },
-      [],
-    );
-
-  /* ================================================================
-     Delete / drag history
-     ================================================================ */
-
-  const onBeforeDelete =
-    React.useCallback(async () => {
-      commit();
-      return true;
-    }, [commit]);
-
-  const onNodeDragStart =
-    React.useCallback(() => {
-      commit();
-    }, [commit]);
-
-  /* ================================================================
-     Inspector
-     ================================================================ */
-
-  const selectedNode = React.useMemo(
-    () =>
-      nodes.find(
-        (n) => n.id === selectedId,
-      ) ?? null,
-    [nodes, selectedId],
-  );
-
-  const updateSelected =
-    React.useCallback(
-      (
-        updater: (
-          data: FlowNodeType["data"],
-        ) => FlowNodeType["data"],
-      ) => {
-        if (!selectedId) return;
-
-        setNodes((nds) =>
-          nds.map((n) =>
-            n.id === selectedId
-              ? {
-                ...n,
-                data: updater(n.data),
-              }
-              : n,
-          ),
-        );
-      },
-      [selectedId, setNodes],
-    );
-
-  const onLabelChange =
-    React.useCallback(
-      (label: string) =>
-        updateSelected((data) => ({
-          ...data,
-          label,
-        })),
-      [updateSelected],
-    );
-
-  const onConfigChange =
-    React.useCallback(
-      (
-        key: string,
-        value: unknown,
-      ) =>
-        updateSelected((data) => ({
-          ...data,
-          config: {
-            ...(data.config ?? {}),
-            [key]: value,
-          },
-        })),
-      [updateSelected],
-    );
-
-  const upstreamIds =
-    React.useMemo(() => {
-      if (!selectedId) return [];
-
-      return edges
-        .filter(
-          (e) =>
-            e.target === selectedId,
-        )
-        .map((e) => e.source)
-        .filter(
-          (v, i, a) =>
-            a.indexOf(v) === i,
-        );
-    }, [edges, selectedId]);
-
-  /* ================================================================
-     Validation
-     ================================================================ */
-
-  const [
-    validation,
-    setValidation,
-  ] =
-    React.useState<ValidationResult | null>(
-      null,
-    );
-
-  const [
-    showValidation,
-    setShowValidation,
-  ] = React.useState(false);
-
-  const errorNodeIds =
-    React.useMemo(() => {
-      const set = new Set<string>();
-
-      for (const issue of
-        validation?.issues ?? []) {
-        if (
-          issue.severity === "ERROR" &&
-          issue.nodeId
-        ) {
-          set.add(issue.nodeId);
-        }
-      }
-
-      return set;
-    }, [validation]);
-
-  const focusNode =
-    React.useCallback(
-      (nodeId: string) => {
-        const node =
-          rf.getNode(nodeId);
-
-        if (!node) return;
-
-        setSelectedId(nodeId);
-
-        rf.setCenter(
-          node.position.x +
-          LAYOUT.nodeWidth / 2,
-
-          node.position.y +
-          LAYOUT.nodeHeight / 2,
-
-          {
-            zoom: 1.2,
-            duration: 400,
-          },
-        );
-      },
-      [rf],
-    );
-
-  /* ================================================================
-     Server mutations
-     ================================================================ */
-
-  const saveMutation =
-    useMutation({
-      mutationFn: () =>
-        saveWorkflowGraph(
-          workflow.id,
-          flowToGraph(
-            nodes,
-            edges,
-          ),
-        ),
-
-      onSuccess: (detail) => {
-        savedRef.current =
-          JSON.stringify(
-            detail.graph,
-          );
-
-        setDirty(false);
-
-        queryClient.setQueryData(
-          ["workflow", workflow.id],
-          detail,
-        );
-
-        toast.success(
-          "Workflow saved.",
-        );
-      },
-
-      onError: (err) =>
-        toast.error(
-          getErrorMessage(err),
-        ),
-    });
-
-  const validateMutation =
-    useMutation({
-      mutationFn: () =>
-        validateWorkflow(
-          workflow.id,
-        ),
-
-      onSuccess: (result) => {
-        setValidation(result);
-        setShowValidation(true);
-
-        if (result.valid) {
-          toast.success(
-            "Validation passed.",
-          );
-        } else {
-          const errs =
-            result.issues.filter(
-              (i) =>
-                i.severity ===
-                "ERROR",
-            ).length;
-
-          toast.error(
-            `${errs} validation error(s) found.`,
-          );
-        }
-      },
-
-      onError: (err) =>
-        toast.error(
-          getErrorMessage(err),
-        ),
-    });
-
-  const [
-    publishOpen,
-    setPublishOpen,
-  ] = React.useState(false);
-
-  const [
-    publishBlock,
-    setPublishBlock,
-  ] =
-    React.useState<ValidationResult | null>(
-      null,
-    );
-
-  const publishMutation =
-    useMutation({
-      mutationFn: (note: string) =>
-        publishWorkflow(
-          workflow.id,
-          note || undefined,
-        ),
-
-      onSuccess: (result) => {
-        setValidation(
-          result.validation,
-        );
-
-        if (
-          result.published &&
-          result.version
-        ) {
-          setPublishBlock(null);
-          setPublishOpen(false);
-          setShowValidation(false);
-
-          queryClient.invalidateQueries({
-            queryKey: [
-              "workflow",
-              workflow.id,
-            ],
-          });
-
-          toast.success(
-            `Published version v${result.version.versionNumber}.`,
-          );
-        } else {
-          setPublishBlock(
-            result.validation,
-          );
-
-          setShowValidation(true);
-
-          toast.error(
-            "Publish blocked by validation errors.",
-          );
-        }
-      },
-
-      onError: (err) =>
-        toast.error(
-          getErrorMessage(err),
-        ),
-    });
-
-  const renameMutation =
-    useMutation({
-      mutationFn: (name: string) =>
-        updateWorkflow(
-          workflow.id,
-          {
-            name,
-            description:
-              workflow.description ??
-              undefined,
-          },
-        ),
-
-      onSuccess: (detail) => {
-        queryClient.setQueryData(
-          ["workflow", workflow.id],
-          detail,
-        );
-
-        toast.success(
-          "Workflow renamed.",
-        );
-      },
-
-      onError: (err) =>
-        toast.error(
-          getErrorMessage(err),
-        ),
-    });
-
-  const runMutation =
-    useMutation({
-      mutationFn: () =>
-        runWorkflow(workflow.id),
-
-      onSuccess: (execution) => {
-        toast.success(
-          "Run started.",
-        );
-
-        router.push(
-          `/executions/${execution.id}`,
-        );
-      },
-
-      onError: (err) =>
-        toast.error(
-          getErrorMessage(err),
-        ),
-    });
-
-  const doSave =
-    React.useCallback(() => {
-      if (
-        !saveMutation.isPending
-      ) {
-        saveMutation.mutate();
-      }
-    }, [saveMutation]);
-
-  /* ================================================================
-     AI generation
-     ================================================================ */
-
-  const [
-    generateOpen,
-    setGenerateOpen,
-  ] = React.useState(false);
-
-  /* ================================================================
-     Webhook
-     ================================================================ */
-
-  const [
-    webhookOpen,
-    setWebhookOpen,
-  ] = React.useState(false);
-
-  const hasWebhookTrigger =
-    React.useMemo(
-      () =>
-        nodes.some(
-          (n) =>
-            n.type ===
-            "webhook_trigger",
-        ),
-      [nodes],
-    );
-
-  const canManageWebhook =
-    hasRole(
-      useAuthStore(
-        (s) => s.currentRole,
-      ),
-      "ADMIN",
-    );
-
-  /* ================================================================
-     Accept AI-generated workflow
-     ================================================================ */
-
-  const acceptGenerated =
-    React.useCallback(
-      (
-        result: GenerateWorkflowResult,
-      ) => {
-        const next =
-          graphToFlow(
-            result.graph,
-          );
-
-        /*
-         * First arrange the graph using topology.
-         */
-        const laidOutNodes =
-          layoutWorkflow(
-            next.nodes,
-            next.edges,
-          );
-
-        /*
-         * Then decide edge routing based
-         * on actual graph geometry.
-         */
-        const laidOutEdges =
-          layoutWorkflowEdges(
-            laidOutNodes,
-            next.edges,
-          );
-
-        commit();
-
-        setNodes(
-          laidOutNodes,
-        );
-
-        setEdges(
-          laidOutEdges,
-        );
-
-        setSelectedId(null);
-
-        /*
-         * Two animation frames allow React Flow
-         * to measure the newly-created nodes
-         * before fitting the viewport.
-         */
-        window.requestAnimationFrame(
-          () => {
-            window.requestAnimationFrame(
-              () => {
-                rf.fitView({
-                  duration: 350,
-                  padding: 0.2,
-                });
-              },
-            );
-          },
-        );
-
-        const n =
-          laidOutNodes.length;
-
-        toast.success(
-          `Added ${n} node${n === 1 ? "" : "s"
-          }. Review, then save.`,
-        );
-      },
-      [
-        commit,
-        setNodes,
-        setEdges,
-        rf,
-      ],
-    );
-
-  /* ================================================================
-     Keyboard shortcuts
-     ================================================================ */
-
-  React.useEffect(() => {
-    function onKey(
-      e: KeyboardEvent,
-    ) {
-      const target =
-        e.target as HTMLElement | null;
-
-      const inField =
-        target &&
-        (target.tagName ===
-          "INPUT" ||
-          target.tagName ===
-          "TEXTAREA" ||
-          target.tagName ===
-          "SELECT" ||
-          target.isContentEditable);
-
-      const mod =
-        e.metaKey || e.ctrlKey;
-
-      if (
-        mod &&
-        e.key.toLowerCase() ===
-        "s"
-      ) {
-        e.preventDefault();
-        doSave();
-      } else if (
-        mod &&
-        !inField &&
-        e.key.toLowerCase() ===
-        "z"
-      ) {
-        e.preventDefault();
-
-        if (e.shiftKey) {
-          redo();
-        } else {
-          undo();
-        }
-      }
-    }
-
-    window.addEventListener(
-      "keydown",
-      onKey,
-    );
-
-    return () =>
-      window.removeEventListener(
-        "keydown",
-        onKey,
-      );
-  }, [
-    doSave,
-    undo,
-    redo,
-  ]);
-
-  /* ================================================================
-     Current workflow state
-     ================================================================ */
+  const workflow =
+    workflowQuery.data;
 
   const current =
     queryClient.getQueryData<WorkflowDetail>(
@@ -1883,291 +1024,1705 @@ function Builder({
     current?.name ??
     workflow.name;
 
-  /* ================================================================
-     Panels
-     ================================================================ */
-
-  const [
-    paletteCollapsed,
-    setPaletteCollapsed,
-  ] = React.useState(false);
-
-  const [
-    inspectorOpen,
-    setInspectorOpen,
-  ] = React.useState(true);
-
-  React.useEffect(() => {
-    if (selectedId) {
-      setInspectorOpen(true);
-    }
-  }, [selectedId]);
-
-  /* ================================================================
-     Render
-     ================================================================ */
-
   return (
-    <ErrorNodesContext.Provider
-      value={errorNodeIds}
-    >
-      <NodeDefsContext.Provider
-        value={defsByType}
-      >
-        <div className="flex h-full flex-col">
-          {showToolbar && (
-            <Toolbar
-              name={name}
-              status={status}
-              version={version}
-              dirty={dirty}
-              canUndo={
-                past.current.length > 0
+    <div className="flex h-screen flex-col bg-[#050505]">
+      <WorkflowHeader
+        workflow={workflow}
+        version={version}
+        dirty={
+          builderHeaderState.dirty
+        }
+        canRun={
+          version != null
+        }
+        runPending={false}
+        namePending={false}
+        onRename={() => {}}
+        onRun={() => {}}
+        onGenerate={() => {
+          if (
+            activeView !==
+            "editor"
+          ) {
+            setActiveView(
+              "editor",
+            );
+
+            window.setTimeout(
+              () =>
+                builderRef.current?.generate(),
+              0,
+            );
+
+            return;
+          }
+
+          builderRef.current?.generate();
+        }}
+        onSave={() =>
+          builderRef.current?.save()
+        }
+        onPublish={() => {
+          if (
+            activeView !==
+            "editor"
+          ) {
+            setActiveView(
+              "editor",
+            );
+
+            window.setTimeout(
+              () =>
+                builderRef.current?.publish(),
+              0,
+            );
+
+            return;
+          }
+
+          builderRef.current?.publish();
+        }}
+        onDelete={() => {
+          if (
+            deleteMutation.isPending
+          ) {
+            return;
+          }
+
+          const confirmed =
+            window.confirm(
+              `Delete "${workflow.name}"? This cannot be undone.`,
+            );
+
+          if (confirmed) {
+            deleteMutation.mutate();
+          }
+        }}
+        savePending={
+          builderHeaderState.savePending
+        }
+        publishPending={
+          builderHeaderState.publishPending
+        }
+        deletePending={
+          deleteMutation.isPending
+        }
+        onWebhook={() => {
+          if (
+            activeView !==
+            "editor"
+          ) {
+            setActiveView(
+              "editor",
+            );
+
+            window.setTimeout(
+              () =>
+                builderRef.current?.webhook(),
+              0,
+            );
+
+            return;
+          }
+
+          builderRef.current?.webhook();
+        }}
+        hasWebhookTrigger={
+          builderHeaderState.hasWebhookTrigger
+        }
+        activeView={activeView}
+        onViewChange={
+          setActiveView
+        }
+      />
+
+      <div className="flex-1 min-h-0 overflow-hidden bg-[#050505]">
+        {activeView ===
+        "editor" ? (
+          <ReactFlowProvider>
+            <Builder
+              ref={builderRef}
+              workflow={workflow}
+              nodeDefs={
+                nodeTypesQuery.data
+                  ?.nodeTypes ?? []
               }
-              canRedo={
-                future.current.length > 0
+              nodeDefsLoading={
+                nodeTypesQuery.isPending
               }
-              savePending={
-                saveMutation.isPending
+              nodeDefsError={
+                nodeTypesQuery.isError
               }
-              validatePending={
-                validateMutation.isPending
-              }
-              namePending={
-                renameMutation.isPending
-              }
-              canRun={version != null}
-              runPending={
-                runMutation.isPending
-              }
-              onRename={(n) =>
-                renameMutation.mutate(n)
-              }
-              onUndo={undo}
-              onRedo={redo}
-              onZoomIn={() =>
-                rf.zoomIn({
-                  duration: 200,
-                })
-              }
-              onZoomOut={() =>
-                rf.zoomOut({
-                  duration: 200,
-                })
-              }
-              onFitView={() =>
-                rf.fitView({
-                  duration: 300,
-                  padding: 0.2,
-                })
-              }
-              onValidate={() =>
-                validateMutation.mutate()
-              }
-              onSave={doSave}
-              onPublish={() => {
-                setPublishBlock(null);
-                setPublishOpen(true);
-              }}
-              onRun={() =>
-                runMutation.mutate()
-              }
-              onGenerate={() =>
-                setGenerateOpen(true)
-              }
-              onWebhook={() =>
-                setWebhookOpen(true)
-              }
-              hasWebhookTrigger={
-                hasWebhookTrigger
+              showToolbar={false}
+              onHeaderStateChange={
+                setBuilderHeaderState
               }
             />
-          )}
-
-          <div className="flex min-h-0 flex-1">
-            <NodePalette
-              defs={nodeDefs}
-              collapsed={
-                paletteCollapsed
-              }
-              onToggle={() =>
-                setPaletteCollapsed(
-                  (c) => !c,
-                )
-              }
-              onAdd={(type) =>
-                addNode(type)
-              }
-              isLoading={
-                nodeDefsLoading
-              }
-              isError={
-                nodeDefsError
+          </ReactFlowProvider>
+        ) : activeView ===
+          "executions" ? (
+          <div className="px-2 lg:px-3 pt-3">
+            <WorkflowExecutionsView
+              workflowId={
+                workflow.id
               }
             />
+          </div>
+        ) : (
+          <div className="px-2 lg:px-3 pt-3">
+            <WorkflowAnomaliesView
+              workflowId={
+                workflow.id
+              }
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
-            <div
-              ref={wrapperRef}
-              className="relative min-w-0 flex-1"
-              onDrop={onDrop}
-              onDragOver={onDragOver}
-            >
-              <ReactFlow
-                nodes={nodes}
-                edges={edges}
-                nodeTypes={nodeTypes}
-                onNodesChange={
-                  onNodesChange
-                }
-                onEdgesChange={
-                  onEdgesChange
-                }
-                onConnect={
-                  onConnect
-                }
-                onSelectionChange={
-                  onSelectionChange
-                }
-                onNodeDragStart={
-                  onNodeDragStart
-                }
-                onBeforeDelete={
-                  onBeforeDelete
-                }
-                deleteKeyCode={[
-                  "Delete",
-                  "Backspace",
-                ]}
-                multiSelectionKeyCode={[
-                  "Meta",
-                  "Control",
-                  "Shift",
-                ]}
-                defaultEdgeOptions={{
-                  type: "straight",
-                  animated: false,
-                }}
-                fitView
-                proOptions={{
-                  hideAttribution:
-                    true,
-                }}
-                className="bg-[#050505]"
-              >
-                <Background
-                  className="!bg-white/[0.04]"
-                  gap={16}
-                />
+interface BuilderHeaderState {
+  dirty: boolean;
+  savePending: boolean;
+  publishPending: boolean;
+  hasWebhookTrigger: boolean;
+}
 
-                <Controls className="!shadow-md" />
+interface BuilderHandle {
+  save: () => void;
+  publish: () => void;
+  generate: () => void;
+  webhook: () => void;
+}
 
-                <MiniMap
-                  pannable
-                  zoomable
-                  className="!bg-card"
-                  nodeClassName={() =>
-                    "!fill-primary/40"
+interface BuilderProps {
+  workflow: WorkflowDetail;
+  nodeDefs: NodeDefinition[];
+  nodeDefsLoading: boolean;
+  nodeDefsError: boolean;
+  showToolbar?: boolean;
+  onHeaderStateChange?: (
+    state: BuilderHeaderState,
+  ) => void;
+}
+
+const Builder =
+  React.forwardRef<
+    BuilderHandle,
+    BuilderProps
+  >(function Builder(
+    {
+      workflow,
+      nodeDefs,
+      nodeDefsLoading,
+      nodeDefsError,
+      showToolbar = true,
+      onHeaderStateChange,
+    },
+    ref,
+  ) {
+    const queryClient =
+      useQueryClient();
+
+    const router =
+      useRouter();
+
+    const rf =
+      useReactFlow<
+        FlowNodeType,
+        FlowEdge
+      >();
+
+    const wrapperRef =
+      React.useRef<HTMLDivElement>(
+        null,
+      );
+
+    const defsByType =
+      React.useMemo(() => {
+        const map: Record<
+          string,
+          NodeDefinition
+        > = {};
+
+        for (const d of nodeDefs) {
+          map[d.type] = d;
+        }
+
+        return map;
+      }, [nodeDefs]);
+
+    const nodeTypes =
+      React.useMemo<NodeTypes>(
+        () => {
+          const map: NodeTypes =
+            {};
+
+          for (
+            const d of nodeDefs
+          ) {
+            map[d.type] =
+              FlowNode;
+          }
+
+          return map;
+        },
+        [nodeDefs],
+      );
+
+    const initial =
+      React.useMemo(() => {
+        const flow =
+          graphToFlow(
+            workflow.graph,
+          );
+
+        const arranged =
+          prepareInitialFlow(
+            flow.nodes,
+            flow.edges,
+          );
+
+        return {
+          original: flow,
+          nodes: arranged.nodes,
+          edges: arranged.edges,
+        };
+      }, [workflow.graph]);
+
+    const [
+      nodes,
+      setNodes,
+      onNodesChange,
+    ] =
+      useNodesState<FlowNodeType>(
+        initial.nodes,
+      );
+
+    const [
+      edges,
+      setEdges,
+      onEdgesChange,
+    ] =
+      useEdgesState<FlowEdge>(
+        initial.edges,
+      );
+
+    const [
+      selectedId,
+      setSelectedId,
+    ] =
+      React.useState<
+        string | null
+      >(null);
+
+    const savedRef =
+      React.useRef<string>(
+        JSON.stringify(
+          flowToGraph(
+            initial.original.nodes,
+            initial.original.edges,
+          ),
+        ),
+      );
+
+    const [dirty, setDirty] =
+      React.useState(false);
+
+    const recomputeDirty =
+      React.useCallback(
+        (
+          nextNodes: FlowNodeType[],
+          nextEdges: FlowEdge[],
+        ) => {
+          const now =
+            JSON.stringify(
+              flowToGraph(
+                nextNodes,
+                nextEdges,
+              ),
+            );
+
+          setDirty(
+            now !==
+              savedRef.current,
+          );
+        },
+        [],
+      );
+
+    React.useEffect(() => {
+      recomputeDirty(
+        nodes,
+        edges,
+      );
+    }, [
+      nodes,
+      edges,
+      recomputeDirty,
+    ]);
+
+    interface Snapshot {
+      nodes: FlowNodeType[];
+      edges: FlowEdge[];
+    }
+
+    const past =
+      React.useRef<
+        Snapshot[]
+      >([]);
+
+    const future =
+      React.useRef<
+        Snapshot[]
+      >([]);
+
+    const [, setHistTick] =
+      React.useState(0);
+
+    const snapshot =
+      React.useCallback(
+        (): Snapshot => ({
+          nodes:
+            structuredClone(
+              rf.getNodes(),
+            ),
+          edges:
+            structuredClone(
+              rf.getEdges(),
+            ),
+        }),
+        [rf],
+      );
+
+    const commit =
+      React.useCallback(() => {
+        past.current.push(
+          snapshot(),
+        );
+
+        if (
+          past.current.length >
+          100
+        ) {
+          past.current.shift();
+        }
+
+        future.current = [];
+
+        setHistTick(
+          (t) => t + 1,
+        );
+      }, [snapshot]);
+
+    const undo =
+      React.useCallback(
+        () => {
+          const prev =
+            past.current.pop();
+
+          if (!prev) return;
+
+          future.current.push(
+            snapshot(),
+          );
+
+          setNodes(
+            prev.nodes,
+          );
+
+          setEdges(
+            prev.edges,
+          );
+
+          setHistTick(
+            (t) => t + 1,
+          );
+        },
+        [
+          snapshot,
+          setNodes,
+          setEdges,
+        ],
+      );
+
+    const redo =
+      React.useCallback(
+        () => {
+          const next =
+            future.current.pop();
+
+          if (!next) return;
+
+          past.current.push(
+            snapshot(),
+          );
+
+          setNodes(
+            next.nodes,
+          );
+
+          setEdges(
+            next.edges,
+          );
+
+          setHistTick(
+            (t) => t + 1,
+          );
+        },
+        [
+          snapshot,
+          setNodes,
+          setEdges,
+        ],
+      );
+          const onConnect =
+      React.useCallback(
+        (conn: Connection) => {
+          commit();
+
+          setEdges((eds) =>
+            addEdge(
+              {
+                ...conn,
+                type: "default",
+                animated: false,
+              },
+              eds,
+            ),
+          );
+        },
+        [commit, setEdges],
+      );
+
+    const addNode =
+      React.useCallback(
+        (
+          type: string,
+          screenPos?: {
+            x: number;
+            y: number;
+          },
+        ) => {
+          const def =
+            defsByType[type];
+
+          if (!def) return;
+
+          const bounds =
+            wrapperRef.current?.getBoundingClientRect();
+
+          let position: {
+            x: number;
+            y: number;
+          };
+
+          if (
+            screenPos &&
+            bounds
+          ) {
+            position =
+              rf.screenToFlowPosition({
+                x: screenPos.x,
+                y: screenPos.y,
+              });
+          } else if (
+            nodes.length > 0
+          ) {
+            const rightmost =
+              nodes.reduce(
+                (
+                  current,
+                  node,
+                ) =>
+                  node.position.x >
+                  current.position.x
+                    ? node
+                    : current,
+                nodes[0],
+              );
+
+            position = {
+              x:
+                rightmost.position.x +
+                LAYOUT.nodeWidth +
+                LAYOUT.horizontalGap,
+              y:
+                rightmost.position.y,
+            };
+          } else {
+            const center =
+              rf.screenToFlowPosition({
+                x:
+                  (bounds?.left ??
+                    0) +
+                  (bounds?.width ??
+                    800) /
+                    2,
+                y:
+                  (bounds?.top ??
+                    0) +
+                  (bounds?.height ??
+                    600) /
+                    2,
+              });
+
+            position = {
+              x:
+                center.x -
+                LAYOUT.nodeWidth /
+                  2,
+              y:
+                center.y -
+                LAYOUT.nodeHeight /
+                  2,
+            };
+          }
+
+          const node: FlowNodeType =
+            {
+              id: newNodeId(
+                type,
+              ),
+              type,
+              position,
+              data: {
+                label: def.label,
+                config: {},
+              },
+            };
+
+          commit();
+
+          setNodes((nds) =>
+            nds.concat(node),
+          );
+
+          setSelectedId(
+            node.id,
+          );
+        },
+        [
+          defsByType,
+          nodes,
+          rf,
+          commit,
+          setNodes,
+        ],
+      );
+
+    const onDrop =
+      React.useCallback(
+        (event: React.DragEvent) => {
+          event.preventDefault();
+
+          const type =
+            event.dataTransfer.getData(
+              DND_MIME,
+            );
+
+          if (!type) return;
+
+          addNode(type, {
+            x: event.clientX,
+            y: event.clientY,
+          });
+        },
+        [addNode],
+      );
+
+    const onDragOver =
+      React.useCallback(
+        (event: React.DragEvent) => {
+          event.preventDefault();
+
+          event.dataTransfer.dropEffect =
+            "move";
+        },
+        [],
+      );
+
+    const autoLayout =
+      React.useCallback(
+        () => {
+          const currentNodes =
+            rf.getNodes();
+
+          const currentEdges =
+            rf.getEdges();
+
+          if (
+            currentNodes.length ===
+            0
+          ) {
+            return;
+          }
+
+          const laidOutNodes =
+            layoutWorkflow(
+              currentNodes,
+              currentEdges,
+            );
+
+          const laidOutEdges =
+            layoutWorkflowEdges(
+              laidOutNodes,
+              currentEdges,
+            );
+
+          commit();
+
+          setNodes(
+            laidOutNodes,
+          );
+
+          setEdges(
+            laidOutEdges,
+          );
+
+          window.requestAnimationFrame(
+            () => {
+              window.requestAnimationFrame(
+                () => {
+                  rf.fitView({
+                    duration: 350,
+                    padding: 0.15,
+                    maxZoom: 1.1,
+                  });
+                },
+              );
+            },
+          );
+        },
+        [
+          rf,
+          commit,
+          setNodes,
+          setEdges,
+        ],
+      );
+
+    const onSelectionChange =
+      React.useCallback(
+        ({
+          nodes: selected,
+        }: OnSelectionChangeParams) => {
+          setSelectedId(
+            selected.length ===
+              1
+              ? selected[0].id
+              : null,
+          );
+        },
+        [],
+      );
+
+    const onBeforeDelete =
+      React.useCallback(
+        async () => {
+          commit();
+
+          return true;
+        },
+        [commit],
+      );
+
+    const onNodeDragStart =
+      React.useCallback(
+        () => {
+          commit();
+        },
+        [commit],
+      );
+
+    const selectedNode =
+      React.useMemo(
+        () =>
+          nodes.find(
+            (n) =>
+              n.id ===
+              selectedId,
+          ) ?? null,
+        [
+          nodes,
+          selectedId,
+        ],
+      );
+
+    const updateSelected =
+      React.useCallback(
+        (
+          updater: (
+            data: FlowNodeType["data"],
+          ) =>
+            FlowNodeType["data"],
+        ) => {
+          if (!selectedId) {
+            return;
+          }
+
+          setNodes((nds) =>
+            nds.map((n) =>
+              n.id ===
+              selectedId
+                ? {
+                    ...n,
+                    data: updater(
+                      n.data,
+                    ),
                   }
-                />
-              </ReactFlow>
+                : n,
+            ),
+          );
+        },
+        [
+          selectedId,
+          setNodes,
+        ],
+      );
 
-              {nodes.length === 0 && (
-                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                  <p className="rounded-md border border-dashed border-white/[0.08] bg-[#0a0a0a]/80 px-4 py-3 text-sm text-white/40">
-                    Drag a node from the
-                    left, or click one to
-                    add it.
-                  </p>
-                </div>
-              )}
+    const onLabelChange =
+      React.useCallback(
+        (label: string) =>
+          updateSelected(
+            (data) => ({
+              ...data,
+              label,
+            }),
+          ),
+        [updateSelected],
+      );
 
-              <ValidationPanel
-                result={
-                  showValidation
-                    ? validation
-                    : null
+    const onConfigChange =
+      React.useCallback(
+        (
+          key: string,
+          value: unknown,
+        ) =>
+          updateSelected(
+            (data) => ({
+              ...data,
+              config: {
+                ...(data.config ??
+                  {}),
+                [key]: value,
+              },
+            }),
+          ),
+        [updateSelected],
+      );
+
+    const upstreamIds =
+      React.useMemo(() => {
+        if (!selectedId) {
+          return [];
+        }
+
+        return edges
+          .filter(
+            (e) =>
+              e.target ===
+              selectedId,
+          )
+          .map(
+            (e) =>
+              e.source,
+          )
+          .filter(
+            (v, i, a) =>
+              a.indexOf(v) ===
+              i,
+          );
+      }, [
+        edges,
+        selectedId,
+      ]);
+
+    const [
+      validation,
+      setValidation,
+    ] =
+      React.useState<ValidationResult | null>(
+        null,
+      );
+
+    const [
+      showValidation,
+      setShowValidation,
+    ] = React.useState(false);
+
+    const errorNodeIds =
+      React.useMemo(() => {
+        const set =
+          new Set<string>();
+
+        for (
+          const issue of
+            validation?.issues ??
+            []
+        ) {
+          if (
+            issue.severity ===
+              "ERROR" &&
+            issue.nodeId
+          ) {
+            set.add(
+              issue.nodeId,
+            );
+          }
+        }
+
+        return set;
+      }, [validation]);
+
+    const focusNode =
+      React.useCallback(
+        (nodeId: string) => {
+          const node =
+            rf.getNode(
+              nodeId,
+            );
+
+          if (!node) {
+            return;
+          }
+
+          setSelectedId(
+            nodeId,
+          );
+
+          rf.setCenter(
+            node.position.x +
+              LAYOUT.nodeWidth /
+                2,
+            node.position.y +
+              LAYOUT.nodeHeight /
+                2,
+            {
+              zoom: 1.2,
+              duration: 400,
+            },
+          );
+        },
+        [rf],
+      );
+
+    const saveMutation =
+      useMutation({
+        mutationFn: () =>
+          saveWorkflowGraph(
+            workflow.id,
+            flowToGraph(
+              nodes,
+              edges,
+            ),
+          ),
+
+        onSuccess: (
+          detail,
+        ) => {
+          savedRef.current =
+            JSON.stringify(
+              detail.graph,
+            );
+
+          setDirty(false);
+
+          queryClient.setQueryData(
+            [
+              "workflow",
+              workflow.id,
+            ],
+            detail,
+          );
+
+          toast.success(
+            "Workflow saved.",
+          );
+        },
+
+        onError: (err) =>
+          toast.error(
+            getErrorMessage(err),
+          ),
+      });
+
+    const validateMutation =
+      useMutation({
+        mutationFn: () =>
+          validateWorkflow(
+            workflow.id,
+          ),
+
+        onSuccess: (
+          result,
+        ) => {
+          setValidation(
+            result,
+          );
+
+          setShowValidation(
+            true,
+          );
+
+          if (
+            result.valid
+          ) {
+            toast.success(
+              "Validation passed.",
+            );
+          } else {
+            const errs =
+              result.issues.filter(
+                (i) =>
+                  i.severity ===
+                  "ERROR",
+              ).length;
+
+            toast.error(
+              `${errs} validation error(s) found.`,
+            );
+          }
+        },
+
+        onError: (err) =>
+          toast.error(
+            getErrorMessage(err),
+          ),
+      });
+
+    const [
+      publishOpen,
+      setPublishOpen,
+    ] =
+      React.useState(false);
+
+    const [
+      publishBlock,
+      setPublishBlock,
+    ] =
+      React.useState<ValidationResult | null>(
+        null,
+      );
+
+    const publishMutation =
+      useMutation({
+        mutationFn: (
+          note: string,
+        ) =>
+          publishWorkflow(
+            workflow.id,
+            note || undefined,
+          ),
+
+        onSuccess: (
+          result,
+        ) => {
+          setValidation(
+            result.validation,
+          );
+
+          if (
+            result.published &&
+            result.version
+          ) {
+            setPublishBlock(
+              null,
+            );
+
+            setPublishOpen(
+              false,
+            );
+
+            setShowValidation(
+              false,
+            );
+
+            queryClient.invalidateQueries(
+              {
+                queryKey: [
+                  "workflow",
+                  workflow.id,
+                ],
+              },
+            );
+
+            toast.success(
+              `Published version v${result.version.versionNumber}.`,
+            );
+          } else {
+            setPublishBlock(
+              result.validation,
+            );
+
+            setShowValidation(
+              true,
+            );
+
+            toast.error(
+              "Publish blocked by validation errors.",
+            );
+          }
+        },
+
+        onError: (err) =>
+          toast.error(
+            getErrorMessage(err),
+          ),
+      });
+
+    const renameMutation =
+      useMutation({
+        mutationFn: (
+          name: string,
+        ) =>
+          updateWorkflow(
+            workflow.id,
+            {
+              name,
+              description:
+                workflow.description ??
+                undefined,
+            },
+          ),
+
+        onSuccess: (
+          detail,
+        ) => {
+          queryClient.setQueryData(
+            [
+              "workflow",
+              workflow.id,
+            ],
+            detail,
+          );
+
+          toast.success(
+            "Workflow renamed.",
+          );
+        },
+
+        onError: (err) =>
+          toast.error(
+            getErrorMessage(err),
+          ),
+      });
+
+    const runMutation =
+      useMutation({
+        mutationFn: () =>
+          runWorkflow(
+            workflow.id,
+          ),
+
+        onSuccess: (
+          execution,
+        ) => {
+          toast.success(
+            "Run started.",
+          );
+
+          router.push(
+            `/executions/${execution.id}`,
+          );
+        },
+
+        onError: (err) =>
+          toast.error(
+            getErrorMessage(err),
+          ),
+      });
+
+    const doSave =
+      React.useCallback(
+        () => {
+          if (
+            !saveMutation.isPending
+          ) {
+            saveMutation.mutate();
+          }
+        },
+        [saveMutation],
+      );
+
+    React.useImperativeHandle(
+      ref,
+      () => ({
+        save: () =>
+          doSave(),
+
+        publish: () => {
+          if (
+            publishMutation.isPending
+          ) {
+            return;
+          }
+
+          setPublishBlock(
+            null,
+          );
+
+          setPublishOpen(
+            true,
+          );
+        },
+
+        generate: () =>
+          setGenerateOpen(
+            true,
+          ),
+
+        webhook: () =>
+          setWebhookOpen(
+            true,
+          ),
+      }),
+      [
+        doSave,
+        publishMutation.isPending,
+      ],
+    );
+        const [
+      generateOpen,
+      setGenerateOpen,
+    ] =
+      React.useState(false);
+
+    const [
+      webhookOpen,
+      setWebhookOpen,
+    ] =
+      React.useState(false);
+
+    const hasWebhookTrigger =
+      React.useMemo(
+        () =>
+          nodes.some(
+            (n) =>
+              n.type ===
+              "webhook_trigger",
+          ),
+        [nodes],
+      );
+
+    React.useEffect(() => {
+      onHeaderStateChange?.({
+        dirty,
+        savePending:
+          saveMutation.isPending,
+        publishPending:
+          publishMutation.isPending,
+        hasWebhookTrigger,
+      });
+    }, [
+      dirty,
+      saveMutation.isPending,
+      publishMutation.isPending,
+      hasWebhookTrigger,
+      onHeaderStateChange,
+    ]);
+
+    const canManageWebhook =
+      hasRole(
+        useAuthStore(
+          (s) =>
+            s.currentRole,
+        ),
+        "ADMIN",
+      );
+
+    const acceptGenerated =
+      React.useCallback(
+        (
+          result: GenerateWorkflowResult,
+        ) => {
+          const next =
+            graphToFlow(
+              result.graph,
+            );
+
+          const laidOutNodes =
+            layoutWorkflow(
+              next.nodes,
+              next.edges,
+            );
+
+          const laidOutEdges =
+            layoutWorkflowEdges(
+              laidOutNodes,
+              next.edges,
+            );
+
+          commit();
+
+          setNodes(
+            laidOutNodes,
+          );
+
+          setEdges(
+            laidOutEdges,
+          );
+
+          setSelectedId(
+            null,
+          );
+
+          window.requestAnimationFrame(
+            () => {
+              window.requestAnimationFrame(
+                () => {
+                  rf.fitView({
+                    duration: 350,
+                    padding: 0.15,
+                    maxZoom: 1.1,
+                  });
+                },
+              );
+            },
+          );
+
+          const n =
+            laidOutNodes.length;
+
+          toast.success(
+            `Added ${n} node${
+              n === 1
+                ? ""
+                : "s"
+            }. Review, then save.`,
+          );
+        },
+        [
+          commit,
+          setNodes,
+          setEdges,
+          rf,
+        ],
+      );
+
+    React.useEffect(() => {
+      function onKey(
+        e: KeyboardEvent,
+      ) {
+        const target =
+          e.target as HTMLElement | null;
+
+        const inField =
+          target &&
+          (
+            target.tagName ===
+              "INPUT" ||
+            target.tagName ===
+              "TEXTAREA" ||
+            target.tagName ===
+              "SELECT" ||
+            target.isContentEditable
+          );
+
+        const mod =
+          e.metaKey ||
+          e.ctrlKey;
+
+        if (
+          mod &&
+          e.key.toLowerCase() ===
+            "s"
+        ) {
+          e.preventDefault();
+
+          doSave();
+        } else if (
+          mod &&
+          !inField &&
+          e.key.toLowerCase() ===
+            "z"
+        ) {
+          e.preventDefault();
+
+          if (e.shiftKey) {
+            redo();
+          } else {
+            undo();
+          }
+        }
+      }
+
+      window.addEventListener(
+        "keydown",
+        onKey,
+      );
+
+      return () =>
+        window.removeEventListener(
+          "keydown",
+          onKey,
+        );
+    }, [
+      doSave,
+      undo,
+      redo,
+    ]);
+
+    const current =
+      queryClient.getQueryData<WorkflowDetail>(
+        [
+          "workflow",
+          workflow.id,
+        ],
+      );
+
+    const status =
+      current?.status ??
+      workflow.status;
+
+    const version =
+      current?.latestVersion ??
+      workflow.latestVersion;
+
+    const name =
+      current?.name ??
+      workflow.name;
+
+    const [
+      paletteCollapsed,
+      setPaletteCollapsed,
+    ] =
+      React.useState(false);
+
+    const [
+      inspectorOpen,
+      setInspectorOpen,
+    ] =
+      React.useState(true);
+
+    React.useEffect(() => {
+      if (selectedId) {
+        setInspectorOpen(
+          true,
+        );
+      }
+    }, [selectedId]);
+
+    return (
+      <ErrorNodesContext.Provider
+        value={errorNodeIds}
+      >
+        <NodeDefsContext.Provider
+          value={defsByType}
+        >
+          <div className="flex h-full flex-col">
+            {showToolbar && (
+              <Toolbar
+                name={name}
+                status={status}
+                version={version}
+                dirty={dirty}
+                canUndo={
+                  past.current
+                    .length > 0
                 }
-                onClose={() =>
-                  setShowValidation(
-                    false,
+                canRedo={
+                  future.current
+                    .length > 0
+                }
+                savePending={
+                  saveMutation.isPending
+                }
+                validatePending={
+                  validateMutation.isPending
+                }
+                namePending={
+                  renameMutation.isPending
+                }
+                canRun={
+                  version != null
+                }
+                runPending={
+                  runMutation.isPending
+                }
+                onRename={(n) =>
+                  renameMutation.mutate(
+                    n,
                   )
                 }
-                onFocusNode={
-                  focusNode
+                onUndo={undo}
+                onRedo={redo}
+                onZoomIn={() =>
+                  rf.zoomIn({
+                    duration: 200,
+                  })
                 }
-              />
-            </div>
+                onZoomOut={() =>
+                  rf.zoomOut({
+                    duration: 200,
+                  })
+                }
+                onFitView={() =>
+                  rf.fitView({
+                    duration: 300,
+                    padding: 0.15,
+                    maxZoom: 1.1,
+                  })
+                }
+                onValidate={() =>
+                  validateMutation.mutate()
+                }
+                onSave={doSave}
+                onPublish={() => {
+                  setPublishBlock(
+                    null,
+                  );
 
-            {inspectorOpen && (
-              <ConfigPanel
-                node={selectedNode}
-                def={
-                  selectedNode?.type
-                    ? defsByType[
-                    selectedNode.type
-                    ]
-                    : undefined
+                  setPublishOpen(
+                    true,
+                  );
+                }}
+                onRun={() =>
+                  runMutation.mutate()
                 }
-                upstreamIds={
-                  upstreamIds
-                }
-                onClose={() =>
-                  setInspectorOpen(
-                    false,
+                onGenerate={() =>
+                  setGenerateOpen(
+                    true,
                   )
                 }
-                onLabelChange={
-                  onLabelChange
+                onWebhook={() =>
+                  setWebhookOpen(
+                    true,
+                  )
                 }
-                onConfigChange={
-                  onConfigChange
+                hasWebhookTrigger={
+                  hasWebhookTrigger
                 }
               />
             )}
+
+            <div className="flex min-h-0 flex-1">
+              <NodePalette
+                defs={nodeDefs}
+                collapsed={
+                  paletteCollapsed
+                }
+                onToggle={() =>
+                  setPaletteCollapsed(
+                    (c) => !c,
+                  )
+                }
+                onAdd={(type) =>
+                  addNode(type)
+                }
+                isLoading={
+                  nodeDefsLoading
+                }
+                isError={
+                  nodeDefsError
+                }
+              />
+
+              <div
+                ref={wrapperRef}
+                className="relative min-w-0 flex-1"
+                onDrop={onDrop}
+                onDragOver={
+                  onDragOver
+                }
+              >
+                <ReactFlow
+                  nodes={nodes}
+                  edges={edges}
+                  nodeTypes={
+                    nodeTypes
+                  }
+                  onNodesChange={
+                    onNodesChange
+                  }
+                  onEdgesChange={
+                    onEdgesChange
+                  }
+                  onConnect={
+                    onConnect
+                  }
+                  onSelectionChange={
+                    onSelectionChange
+                  }
+                  onNodeDragStart={
+                    onNodeDragStart
+                  }
+                  onBeforeDelete={
+                    onBeforeDelete
+                  }
+                  deleteKeyCode={[
+                    "Delete",
+                    "Backspace",
+                  ]}
+                  multiSelectionKeyCode={[
+                    "Meta",
+                    "Control",
+                    "Shift",
+                  ]}
+                  defaultEdgeOptions={{
+                    type: "default",
+                    animated: false,
+                    style: {
+                      stroke:
+                        "rgba(255,255,255,0.35)",
+                      strokeWidth: 1.75,
+                    },
+                  }}
+                  connectionLineType={
+                    ConnectionLineType.Bezier
+                  }
+                  fitView
+                  fitViewOptions={{
+                    padding: 0.15,
+                    maxZoom: 1.1,
+                  }}
+                  minZoom={0.1}
+                  maxZoom={2}
+                  proOptions={{
+                    hideAttribution:
+                      true,
+                  }}
+                  className="bg-[#050505]"
+                >
+                  <Background
+                    variant={
+                      BackgroundVariant.Dots
+                    }
+                    gap={22}
+                    size={1.4}
+                    color="rgba(255,255,255,0.13)"
+                  />
+
+                  <Controls className="!shadow-md" />
+
+                  <MiniMap
+                    pannable
+                    zoomable
+                    className="!bg-card"
+                    nodeClassName={() =>
+                      "!fill-primary/40"
+                    }
+                  />
+
+                  <Panel position="top-left">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={
+                        autoLayout
+                      }
+                      disabled={
+                        nodes.length ===
+                        0
+                      }
+                      className="h-8 border-white/[0.08] bg-[#0a0a0a]/90 text-xs text-white/70 hover:bg-white/[0.06] hover:text-white"
+                    >
+                      Auto layout
+                    </Button>
+                  </Panel>
+                </ReactFlow>
+
+                {nodes.length ===
+                  0 && (
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <p className="rounded-md border border-dashed border-white/[0.08] bg-[#0a0a0a]/80 px-4 py-3 text-sm text-white/40">
+                      Drag a node from the
+                      left, or click one to
+                      add it.
+                    </p>
+                  </div>
+                )}
+
+                <ValidationPanel
+                  result={
+                    showValidation
+                      ? validation
+                      : null
+                  }
+                  onClose={() =>
+                    setShowValidation(
+                      false,
+                    )
+                  }
+                  onFocusNode={
+                    focusNode
+                  }
+                />
+              </div>
+
+              {inspectorOpen && (
+                <ConfigPanel
+                  node={selectedNode}
+                  def={
+                    selectedNode?.type
+                      ? defsByType[
+                          selectedNode.type
+                        ]
+                      : undefined
+                  }
+                  upstreamIds={
+                    upstreamIds
+                  }
+                  onClose={() =>
+                    setInspectorOpen(
+                      false,
+                    )
+                  }
+                  onLabelChange={
+                    onLabelChange
+                  }
+                  onConfigChange={
+                    onConfigChange
+                  }
+                />
+              )}
+            </div>
           </div>
-        </div>
 
-        <PublishDialog
-          open={publishOpen}
-          onOpenChange={
-            setPublishOpen
-          }
-          pending={
-            publishMutation.isPending
-          }
-          blockingValidation={
-            publishBlock
-          }
-          onPublish={(note) =>
-            publishMutation.mutate(
-              note,
-            )
-          }
-        />
+          <PublishDialog
+            open={publishOpen}
+            onOpenChange={
+              setPublishOpen
+            }
+            pending={
+              publishMutation.isPending
+            }
+            blockingValidation={
+              publishBlock
+            }
+            onPublish={(note) =>
+              publishMutation.mutate(
+                note,
+              )
+            }
+          />
 
-        <GenerateWorkflowDialog
-          open={generateOpen}
-          onOpenChange={
-            setGenerateOpen
-          }
-          onAccept={
-            acceptGenerated
-          }
-        />
+          <GenerateWorkflowDialog
+            open={generateOpen}
+            onOpenChange={
+              setGenerateOpen
+            }
+            onAccept={
+              acceptGenerated
+            }
+          />
 
-        <WebhookDialog
-          open={webhookOpen}
-          onOpenChange={
-            setWebhookOpen
-          }
-          workflowId={
-            workflow.id
-          }
-          canManage={
-            canManageWebhook
-          }
-        />
-      </NodeDefsContext.Provider>
-    </ErrorNodesContext.Provider>
-  );
-}
+          <WebhookDialog
+            open={webhookOpen}
+            onOpenChange={
+              setWebhookOpen
+            }
+            workflowId={
+              workflow.id
+            }
+            canManage={
+              canManageWebhook
+            }
+          />
+        </NodeDefsContext.Provider>
+      </ErrorNodesContext.Provider>
+    );
+  },
+);

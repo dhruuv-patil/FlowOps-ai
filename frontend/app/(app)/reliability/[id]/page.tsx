@@ -1,26 +1,27 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
 import {
-  Activity,
-  AlertTriangle,
   ArrowLeft,
   Brain,
   CheckCircle2,
-  ChevronDown,
-  Clock,
-  Code2,
-  FileText,
+  Copy,
   Loader2,
-  Play,
+  MoreHorizontal,
   RefreshCw,
-  Shield,
-  Target,
-  XCircle,
-  Zap,
 } from "lucide-react";
-import { format } from "date-fns";
+import {
+  format,
+  formatDistanceToNowStrict,
+  isValid,
+} from "date-fns";
 import { toast } from "sonner";
 
 import {
@@ -37,28 +38,19 @@ import type {
   AnomalyDetail,
   AnomalySeverity,
   AnomalyStatus,
-  AnomalyType,
   AIInvestigationResult,
   RecoveryStatus,
 } from "@/types";
 
 import { Button } from "@/components/ui/button";
-
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "@/components/ui/card";
-
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -70,9 +62,6 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-
 import {
   Dialog,
   DialogContent,
@@ -82,43 +71,177 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-const SEVERITY_COLORS: Record<AnomalySeverity, string> = {
-  LOW: "bg-green-500/10 text-green-400 border-green-500/20",
-  MEDIUM: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
-  HIGH: "bg-orange-500/10 text-orange-400 border-orange-500/20",
-  CRITICAL: "bg-red-500/10 text-red-400 border-red-500/20",
-};
+/* -------------------------------------------------------------------------- */
+/* Display config                                                             */
+/* -------------------------------------------------------------------------- */
 
-const TYPE_ICONS: Record<
-  AnomalyType,
-  React.ComponentType<{ className?: string }>
+const RECOVERY_REQUIRED_COUNT = 5;
+const RECOVERY_POLL_MS = 3000;
+const REASON_MAX_LENGTH = 500;
+
+const SEVERITY: Record<
+  AnomalySeverity,
+  {
+    label: string;
+    dot: string;
+    text: string;
+  }
 > = {
-  VOLUME: Zap,
-  LATENCY: Clock,
-  OUTPUT: Code2,
-  BEHAVIORAL: Target,
+  LOW: {
+    label: "Low",
+    dot: "bg-green-400",
+    text: "text-white/60",
+  },
+  MEDIUM: {
+    label: "Medium",
+    dot: "bg-yellow-400",
+    text: "text-white/70",
+  },
+  HIGH: {
+    label: "High",
+    dot: "bg-orange-400",
+    text: "text-white/80",
+  },
+  CRITICAL: {
+    label: "Critical",
+    dot: "bg-red-400",
+    text: "text-red-300",
+  },
 };
 
-const STATUS_COLORS: Record<AnomalyStatus, string> = {
-  OPEN: "bg-blue-500/10 text-blue-400 border-blue-500/20",
-  ACKNOWLEDGED: "bg-purple-500/10 text-purple-400 border-purple-500/20",
-  VERIFYING_RECOVERY: "bg-amber-500/10 text-amber-400 border-amber-500/20",
-  RESOLVED: "bg-green-500/10 text-green-400 border-green-500/20",
-  FALSE_POSITIVE: "bg-gray-500/10 text-gray-400 border-gray-500/20",
+const STATUS: Record<
+  AnomalyStatus,
+  {
+    label: string;
+    className: string;
+  }
+> = {
+  OPEN: {
+    label: "Open",
+    className:
+      "bg-blue-500/10 text-blue-400 border-blue-500/20",
+  },
+
+  ACKNOWLEDGED: {
+    label: "Acknowledged",
+    className:
+      "bg-purple-500/10 text-purple-400 border-purple-500/20",
+  },
+
+  VERIFYING_RECOVERY: {
+    label: "Verifying recovery",
+    className:
+      "bg-amber-500/10 text-amber-400 border-amber-500/20",
+  },
+
+  RESOLVED: {
+    label: "Resolved",
+    className:
+      "bg-green-500/10 text-green-400 border-green-500/20",
+  },
+
+  FALSE_POSITIVE: {
+    label: "False positive",
+    className:
+      "bg-gray-500/10 text-gray-400 border-gray-500/20",
+  },
 };
 
-function SeverityBadge({
+const TYPE_LABEL: Record<string, string> = {
+  VOLUME: "Volume",
+  LATENCY: "Latency",
+  OUTPUT: "Output",
+  BEHAVIORAL: "Behavioral",
+};
+
+const TAB_TRIGGER =
+  "data-[state=active]:bg-white/[0.08] data-[state=active]:text-white";
+
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                    */
+/* -------------------------------------------------------------------------- */
+
+const isFiniteNumber = (
+  v: unknown
+): v is number =>
+  typeof v === "number" && Number.isFinite(v);
+
+const formatPercent = (v: unknown) =>
+  isFiniteNumber(v)
+    ? `${Math.round(v * 100)}%`
+    : "—";
+
+const formatSigma = (v: unknown) =>
+  isFiniteNumber(v)
+    ? `${v > 0 ? "+" : ""}${v.toFixed(2)}σ`
+    : "—";
+
+function FormattedDate({
+  value,
+  pattern = "MMM d, yyyy HH:mm:ss",
+  relative = false,
+}: {
+  value?: string | null;
+  pattern?: string;
+  relative?: boolean;
+}) {
+  const date = value ? new Date(value) : null;
+
+  if (!date || !isValid(date)) {
+    return <span>—</span>;
+  }
+
+  return (
+    <time
+      dateTime={date.toISOString()}
+      title={
+        relative
+          ? format(
+              date,
+              "MMM d, yyyy 'at' HH:mm:ss"
+            )
+          : undefined
+      }
+    >
+      {relative
+        ? formatDistanceToNowStrict(date, {
+            addSuffix: true,
+          })
+        : format(date, pattern)}
+    </time>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Small presentational pieces                                                */
+/* -------------------------------------------------------------------------- */
+
+function SeverityLabel({
   severity,
 }: {
   severity: AnomalySeverity;
 }) {
+  const config = SEVERITY[severity];
+
+  if (!config) {
+    return (
+      <span className="text-sm text-white/44">
+        {severity}
+      </span>
+    );
+  }
+
   return (
-    <Badge
-      className={SEVERITY_COLORS[severity]}
-      variant="secondary"
+    <span
+      className={`inline-flex items-center gap-2 text-sm ${config.text}`}
     >
-      {severity}
-    </Badge>
+      <span
+        className={`size-1.5 rounded-full ${config.dot}`}
+        aria-hidden
+      />
+
+      {config.label} severity
+    </span>
   );
 }
 
@@ -127,1129 +250,1563 @@ function StatusBadge({
 }: {
   status: AnomalyStatus;
 }) {
+  const config = STATUS[status];
+
   return (
     <Badge
-      className={STATUS_COLORS[status]}
       variant="secondary"
+      className={
+        config?.className ?? "text-white/60"
+      }
     >
-      {status}
+      {config?.label ?? status}
     </Badge>
   );
 }
 
-function TypeBadge({
-  type,
+function Panel({
+  title,
+  description,
+  action,
+  className = "",
+  children,
 }: {
-  type: AnomalyType;
+  title: string;
+  description?: React.ReactNode;
+  action?: React.ReactNode;
+  className?: string;
+  children: React.ReactNode;
 }) {
-  const Icon = TYPE_ICONS[type] ?? AlertTriangle;
-
   return (
-    <Badge variant="secondary" className="gap-1">
-      <Icon className="size-3" />
-      {type}
-    </Badge>
+    <section
+      className={`rounded-xl border border-white/[0.08] bg-[#0a0a0a] ${className}`}
+    >
+      <header className="flex items-start justify-between gap-4 px-5 pt-5">
+        <div className="min-w-0">
+          <h2 className="text-sm font-medium text-white/90">
+            {title}
+          </h2>
+
+          {description && (
+            <p className="mt-1 text-sm text-white/44">
+              {description}
+            </p>
+          )}
+        </div>
+
+        {action}
+      </header>
+
+      <div className="px-5 pb-5 pt-5">
+        {children}
+      </div>
+    </section>
   );
 }
+
+function Field({
+  label,
+  children,
+  mono = false,
+}: {
+  label: string;
+  children: React.ReactNode;
+  mono?: boolean;
+}) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-xs text-white/44">
+        {label}
+      </dt>
+
+      <dd
+        className={`mt-1 break-words text-sm text-white/90 ${
+          mono ? "font-mono tabular-nums" : ""
+        }`}
+      >
+        {children}
+      </dd>
+    </div>
+  );
+}
+
+function InvestigationSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-3">
+      <h3 className="text-sm font-medium text-white/90">
+        {title}
+      </h3>
+
+      {children}
+    </div>
+  );
+}
+
+function DetailSkeleton() {
+  return (
+    <div
+      className="mx-auto max-w-5xl space-y-6 pt-8 pb-10"
+      aria-hidden
+    >
+      <div className="h-4 w-32 animate-pulse rounded bg-white/[0.06]" />
+
+      <div className="space-y-3">
+        <div className="h-6 w-80 animate-pulse rounded bg-white/[0.06]" />
+
+        <div className="h-4 w-56 animate-pulse rounded bg-white/[0.06]" />
+      </div>
+
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+        <div className="h-72 animate-pulse rounded-xl bg-white/[0.04]" />
+
+        <div className="h-72 animate-pulse rounded-xl bg-white/[0.04]" />
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Page                                                                       */
+/* -------------------------------------------------------------------------- */
+
+type PendingAction =
+  | "acknowledge"
+  | "resolve"
+  | "verify"
+  | "investigate";
 
 export default function AnomalyDetailPage({
   params,
 }: {
-  params: Promise<{ id: string }>;
+  params: { id: string };
 }) {
-  const [anomaly, setAnomaly] = useState<AnomalyDetail | null>(null);
+  const { id } = params;
+
+  const [anomaly, setAnomaly] =
+    useState<AnomalyDetail | null>(null);
+
   const [investigation, setInvestigation] =
     useState<AIInvestigationResult | null>(null);
+
   const [recoveryStatus, setRecoveryStatus] =
     useState<RecoveryStatus | null>(null);
 
-  const [loading, setLoading] = useState(true);
-  const [investigating, setInvestigating] = useState(false);
-  const [verifyingPending, setVerifyingPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] =
+    useState(true);
 
-  const [activeTab, setActiveTab] = useState("overview");
+  const [error, setError] =
+    useState<string | null>(null);
 
-  const [falsePositiveOpen, setFalsePositiveOpen] = useState(false);
-  const [falsePositiveReason, setFalsePositiveReason] = useState("");
-  const [falsePositivePending, setFalsePositivePending] = useState(false);
+  const [pending, setPending] =
+    useState<PendingAction | null>(null);
 
-  useEffect(() => {
-    loadAnomaly();
-  }, []);
+  const [activeTab, setActiveTab] =
+    useState("overview");
 
-  // Poll for recovery status updates while verification is active
-  useEffect(() => {
-    if (!anomaly || anomaly.status !== "VERIFYING_RECOVERY") return;
+  const [confirmResolveOpen, setConfirmResolveOpen] =
+    useState(false);
 
-    loadRecoveryStatus();
-    const interval = setInterval(async () => {
-      await loadRecoveryStatus();
-    }, 3000);
+  const [fpOpen, setFpOpen] =
+    useState(false);
 
-    return () => clearInterval(interval);
-  }, [anomaly?.status, anomaly?.id]);
+  const [fpReason, setFpReason] =
+    useState("");
 
-  async function loadRecoveryStatus() {
-    if (!anomaly) return;
-    try {
-      const snapshot = await fetchRecoveryStatus(anomaly.id);
-      setRecoveryStatus(snapshot);
-      // If status transitioned to RESOLVED automatically, reload full anomaly
-      if (snapshot.anomalyStatus !== anomaly.status) {
-        const updated = await fetchAnomaly(anomaly.id);
-        setAnomaly(updated);
-        if (updated.status === "RESOLVED") {
-          toast.success("Recovery verified! Anomaly automatically resolved.");
-        }
+  const [fpSubmitting, setFpSubmitting] =
+    useState(false);
+
+  // Guards against out-of-order responses
+  // and updates after unmount.
+  const requestId = useRef(0);
+
+  const refresh = useCallback(
+    async ({
+      silent = false,
+    }: {
+      silent?: boolean;
+    } = {}) => {
+      const req = ++requestId.current;
+
+      if (!silent) {
+        setLoading(true);
+        setError(null);
       }
-    } catch (err) {
-      console.error("Failed to load recovery status", err);
-    }
-  }
 
-  async function loadAnomaly() {
-    setLoading(true);
-    setError(null);
+      try {
+        const data = await fetchAnomaly(id);
 
-    try {
-      const { id } = await params;
-      const data = await fetchAnomaly(id);
+        if (req !== requestId.current) {
+          return;
+        }
 
-      setAnomaly(data);
+        setAnomaly(data);
 
-      // Load existing AI investigation if present.
-      if (data.evidence?.investigation) {
-        setInvestigation(
-          data.evidence.investigation as AIInvestigationResult
+        const saved =
+          data.evidence?.investigation as
+            | AIInvestigationResult
+            | undefined;
+
+        if (saved) {
+          setInvestigation(saved);
+        }
+
+        if (
+          data.status ===
+            "VERIFYING_RECOVERY" ||
+          data.status === "RESOLVED"
+        ) {
+          try {
+            const snapshot =
+              await fetchRecoveryStatus(id);
+
+            if (
+              req === requestId.current
+            ) {
+              setRecoveryStatus(snapshot);
+            }
+          } catch (err) {
+            // Expected for anomalies resolved manually,
+            // which never had a recovery run.
+            console.error(
+              "Failed to load recovery status",
+              err
+            );
+          }
+        }
+      } catch (err) {
+        if (req !== requestId.current) {
+          return;
+        }
+
+        console.error(
+          "Failed to load anomaly",
+          err
         );
-      }
 
-      // Load recovery status if verifying or resolved via recovery
-      if (data.status === "VERIFYING_RECOVERY" || data.status === "RESOLVED") {
-        try {
-          const snapshot = await fetchRecoveryStatus(id);
-          setRecoveryStatus(snapshot);
-        } catch (rErr) {
-          console.error("Failed to fetch initial recovery status", rErr);
+        if (!silent) {
+          setError(
+            "We couldn't load this anomaly. Check your connection and try again."
+          );
+        }
+      } finally {
+        if (req === requestId.current) {
+          setLoading(false);
         }
       }
-    } catch (err) {
-      setError("Failed to load anomaly");
-      console.error(err);
-    } finally {
-      setLoading(false);
+    },
+    [id]
+  );
+
+  useEffect(() => {
+    setInvestigation(null);
+    setRecoveryStatus(null);
+    setActiveTab("overview");
+
+    void refresh();
+
+    return () => {
+      requestId.current++;
+    };
+  }, [refresh]);
+
+  /* ------------------------------------------------------------------------ */
+  /* Recovery polling                                                         */
+  /* ------------------------------------------------------------------------ */
+
+  const status = anomaly?.status;
+
+  useEffect(() => {
+    if (status !== "VERIFYING_RECOVERY") {
+      return;
     }
-  }
 
-  async function handleStartVerification(requiredCount?: number) {
-    if (!anomaly) return;
+    let stopped = false;
+    let inFlight = false;
 
-    setVerifyingPending(true);
+    const tick = async () => {
+      if (inFlight || document.hidden) {
+        return;
+      }
+
+      inFlight = true;
+
+      try {
+        const snapshot =
+          await fetchRecoveryStatus(id);
+
+        if (stopped) {
+          return;
+        }
+
+        setRecoveryStatus(snapshot);
+
+        // The backend can resolve the anomaly on
+        // its own once enough healthy executions
+        // are observed.
+        if (
+          snapshot.anomalyStatus !==
+          "VERIFYING_RECOVERY"
+        ) {
+          const updated =
+            await fetchAnomaly(id);
+
+          if (stopped) {
+            return;
+          }
+
+          setAnomaly(updated);
+
+          if (
+            updated.status === "RESOLVED"
+          ) {
+            toast.success(
+              "Recovery verified. Anomaly resolved."
+            );
+          }
+        }
+      } catch (err) {
+        console.error(
+          "Failed to poll recovery status",
+          err
+        );
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    void tick();
+
+    const interval = setInterval(
+      tick,
+      RECOVERY_POLL_MS
+    );
+
+    return () => {
+      stopped = true;
+      clearInterval(interval);
+    };
+  }, [id, status]);
+
+  /* ------------------------------------------------------------------------ */
+  /* Actions                                                                  */
+  /* ------------------------------------------------------------------------ */
+
+  async function run(
+    kind: PendingAction,
+    task: () => Promise<unknown>,
+    success: string,
+    failure: string
+  ): Promise<boolean> {
+    setPending(kind);
+
     try {
-      const updated = await verifyRecovery(anomaly.id, requiredCount ?? 5);
-      setAnomaly(updated);
-      await loadRecoveryStatus();
-      toast.success("Recovery verification started. Monitoring subsequent executions.");
+      await task();
+
+      await refresh({
+        silent: true,
+      });
+
+      toast.success(success);
+
+      return true;
     } catch (err) {
       console.error(err);
-      toast.error("Could not start recovery verification.");
+
+      toast.error(failure);
+
+      return false;
     } finally {
-      setVerifyingPending(false);
+      setPending(null);
     }
   }
 
-  async function handleAcknowledge() {
-    if (!anomaly) return;
+  const handleAcknowledge = () =>
+    run(
+      "acknowledge",
+      () => acknowledgeAnomaly(id),
+      "Anomaly acknowledged",
+      "Couldn't acknowledge the anomaly. Try again."
+    );
 
-    try {
-      await acknowledgeAnomaly(anomaly.id);
-      await loadAnomaly();
-    } catch (err) {
-      console.error(err);
-      toast.error("Could not acknowledge this anomaly.");
-    }
-  }
+  const handleVerify = () =>
+    run(
+      "verify",
+      async () => {
+        const updated =
+          await verifyRecovery(
+            id,
+            RECOVERY_REQUIRED_COUNT
+          );
+
+        setAnomaly(updated);
+      },
+      "Recovery verification started",
+      "Couldn't start recovery verification. Try again."
+    );
 
   async function handleResolve() {
-    if (!anomaly) return;
+    const ok = await run(
+      "resolve",
+      () => resolveAnomaly(id),
+      "Anomaly resolved",
+      "Couldn't resolve the anomaly. Try again."
+    );
 
-    try {
-      await resolveAnomaly(anomaly.id);
-      await loadAnomaly();
-    } catch (err) {
-      console.error(err);
-      toast.error("Could not resolve this anomaly.");
-    }
-  }
-
-  async function submitFalsePositive() {
-    if (!anomaly) return;
-
-    const reason = falsePositiveReason.trim();
-
-    if (!reason) return;
-
-    setFalsePositivePending(true);
-
-    try {
-      await markAnomalyFalsePositive(anomaly.id, reason);
-      await loadAnomaly();
-
-      setFalsePositiveOpen(false);
-      setFalsePositiveReason("");
-
-      toast.success("Anomaly marked as false positive.");
-    } catch (err) {
-      console.error(err);
-      toast.error("Could not mark this anomaly as a false positive.");
-    } finally {
-      setFalsePositivePending(false);
+    if (ok) {
+      setConfirmResolveOpen(false);
     }
   }
 
   async function handleInvestigate() {
-    if (!anomaly) return;
+    const ok = await run(
+      "investigate",
+      async () => {
+        const result =
+          await investigateAnomaly(id);
 
-    setInvestigating(true);
+        setInvestigation(result.result);
+      },
+      "Investigation complete",
+      "Couldn't run the investigation. Try again."
+    );
 
-    try {
-      const result = await investigateAnomaly(anomaly.id);
-
-      setInvestigation(result.result);
-      await loadAnomaly();
+    if (ok) {
       setActiveTab("investigation");
-
-      toast.success("AI investigation completed.");
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to run AI investigation");
-    } finally {
-      setInvestigating(false);
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex justify-center py-12">
-        <Loader2 className="size-8 animate-spin text-white/44" />
-      </div>
-    );
+  function closeFalsePositive() {
+    setFpOpen(false);
+    setFpReason("");
+  }
+
+  async function submitFalsePositive(
+    e: React.FormEvent
+  ) {
+    e.preventDefault();
+
+    const reason = fpReason.trim();
+
+    if (!reason || fpSubmitting) {
+      return;
+    }
+
+    setFpSubmitting(true);
+
+    try {
+      await markAnomalyFalsePositive(
+        id,
+        reason
+      );
+
+      await refresh({
+        silent: true,
+      });
+
+      toast.success(
+        "Marked as false positive"
+      );
+
+      closeFalsePositive();
+    } catch (err) {
+      console.error(err);
+
+      toast.error(
+        "Couldn't mark the anomaly as a false positive. Try again."
+      );
+    } finally {
+      setFpSubmitting(false);
+    }
+  }
+
+  async function copyEvidence(
+    value: unknown
+  ) {
+    try {
+      await navigator.clipboard.writeText(
+        JSON.stringify(value, null, 2)
+      );
+
+      toast.success("Copied to clipboard");
+    } catch {
+      toast.error(
+        "Couldn't copy to clipboard"
+      );
+    }
+  }
+
+  /* ------------------------------------------------------------------------ */
+  /* Derived                                                                  */
+  /* ------------------------------------------------------------------------ */
+
+  // The investigation is rendered in its own tab,
+  // so drop it from the raw dump.
+  const detectorEvidence = useMemo(() => {
+    const evidence =
+      anomaly?.evidence as
+        | Record<string, unknown>
+        | null
+        | undefined;
+
+    if (!evidence) {
+      return null;
+    }
+
+    const rest = {
+      ...evidence,
+    };
+
+    delete rest.investigation;
+
+    return Object.keys(rest).length > 0
+      ? rest
+      : null;
+  }, [anomaly?.evidence]);
+
+  const timeline = useMemo(() => {
+    if (!anomaly) {
+      return [];
+    }
+
+    const events: {
+      key: string;
+      label: string;
+      at: string;
+      dot: string;
+    }[] = [
+      {
+        key: "created",
+        label: "Created",
+        at: anomaly.createdAt,
+        dot: "bg-white/30",
+      },
+      {
+        key: "detected",
+        label: "Detected",
+        at: anomaly.detectedAt,
+        dot: "bg-blue-400",
+      },
+    ];
+
+    if (recoveryStatus?.startedAt) {
+      events.push({
+        key: "recovery",
+        label: "Recovery verification started",
+        at: recoveryStatus.startedAt,
+        dot: "bg-amber-400",
+      });
+    }
+
+    if (
+      anomaly.updatedAt !==
+      anomaly.createdAt
+    ) {
+      events.push({
+        key: "updated",
+        label: "Last updated",
+        at: anomaly.updatedAt,
+        dot: "bg-white/30",
+      });
+    }
+
+    return events
+      .filter((e) =>
+        isValid(new Date(e.at))
+      )
+      .sort(
+        (a, b) =>
+          new Date(a.at).getTime() -
+          new Date(b.at).getTime()
+      );
+  }, [
+    anomaly,
+    recoveryStatus?.startedAt,
+  ]);
+
+  /* ------------------------------------------------------------------------ */
+  /* Loading / Error                                                          */
+  /* ------------------------------------------------------------------------ */
+
+  if (loading && !anomaly) {
+    return <DetailSkeleton />;
   }
 
   if (error || !anomaly) {
     return (
-      <Card className="border-destructive/50 bg-destructive/5">
-        <CardContent className="pt-6 pb-4 px-4 text-center">
-          <p className="text-destructive">
-            {error || "Anomaly not found"}
+      <div className="mx-auto max-w-5xl space-y-5 pt-8 pb-10">
+        <Link
+          href="/reliability"
+          className="inline-flex items-center gap-2 text-sm text-white/44 transition-colors hover:text-white/90"
+        >
+          <ArrowLeft
+            className="size-4"
+            aria-hidden
+          />
+          Anomalies
+        </Link>
+
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-4 rounded-xl border border-red-500/20 bg-red-500/[0.06] px-4 py-3"
+        >
+          <p className="text-sm text-red-300">
+            {error ??
+              "This anomaly doesn't exist."}
           </p>
-        </CardContent>
-      </Card>
+
+          {error && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                void refresh()
+              }
+            >
+              Try again
+            </Button>
+          )}
+        </div>
+      </div>
     );
   }
 
+  /* ------------------------------------------------------------------------ */
+  /* Page state                                                               */
+  /* ------------------------------------------------------------------------ */
+
+  const isOpen =
+    anomaly.status === "OPEN";
+
+  const isAcknowledged =
+    anomaly.status === "ACKNOWLEDGED";
+
+  const isVerifying =
+    anomaly.status ===
+    "VERIFYING_RECOVERY";
+
+  const isActive =
+    isOpen ||
+    isAcknowledged ||
+    isVerifying;
+
+  const typeLabel =
+    TYPE_LABEL[anomaly.type] ??
+    anomaly.type;
+
+  /* ------------------------------------------------------------------------ */
+  /* Recovery panel state                                                     */
+  /* ------------------------------------------------------------------------ */
+
+  const requiredCount =
+    recoveryStatus?.requiredCount ??
+    anomaly.recoveryRequiredCount ??
+    RECOVERY_REQUIRED_COUNT;
+
+  const healthyCount =
+    recoveryStatus?.healthyCount ??
+    anomaly.recoveryHealthyCount ??
+    0;
+
+  const observedCount =
+    recoveryStatus?.observedCount ?? 0;
+
+  const recoveryVerified =
+    anomaly.status === "RESOLVED" &&
+    !!recoveryStatus &&
+    healthyCount >= requiredCount;
+
+  const showRecoveryPanel =
+    isVerifying || recoveryVerified;
+
+  const recoveryFailing =
+    !recoveryVerified &&
+    observedCount > 0 &&
+    healthyCount === 0;
+
+  const recoveryBadge = recoveryVerified
+    ? {
+        text: "Verified",
+        className:
+          "bg-green-500/10 text-green-400 border-green-500/20",
+      }
+    : recoveryFailing
+    ? {
+        text: "Not recovering",
+        className:
+          "bg-red-500/10 text-red-400 border-red-500/20",
+      }
+    : observedCount > 0
+    ? {
+        text: "Verifying",
+        className:
+          "bg-amber-500/10 text-amber-400 border-amber-500/20",
+      }
+    : {
+        text: "Waiting for data",
+        className:
+          "bg-amber-500/10 text-amber-400 border-amber-500/20",
+      };
+
+  const recoveryDescription =
+    recoveryVerified
+      ? `The workflow is back within its baseline. ${healthyCount} healthy executions observed.`
+      : recoveryFailing
+      ? "The metric is still outside its baseline range. You can resolve manually, but recovery hasn't been verified."
+      : "Observing new executions to confirm the metric returns to its baseline.";
+
+  /* ------------------------------------------------------------------------ */
+  /* Render                                                                   */
+  /* ------------------------------------------------------------------------ */
+
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-6 pt-8 pb-10">
+      {/* Back navigation */}
+      <Link
+        href="/reliability"
+        className="inline-flex items-center gap-2 text-sm text-white/44 transition-colors hover:text-white/90"
+      >
+        <ArrowLeft
+          className="size-4"
+          aria-hidden
+        />
+        Anomalies
+      </Link>
+
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <Link
-          href="/reliability"
-          className="flex items-center gap-2 text-sm text-white/44 hover:text-white/90"
-        >
-          <ArrowLeft className="size-4" />
-          Back to Anomalies
-        </Link>
+      <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold tracking-tight text-white/90">
+            {typeLabel} anomaly in{" "}
+            <Link
+              href={`/workflows/${anomaly.workflowId}`}
+              className="underline decoration-white/20 underline-offset-4 transition-colors hover:decoration-white/60"
+            >
+              {anomaly.workflowName}
+            </Link>
+          </h1>
 
-        <div className="flex items-center gap-2">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="gap-2">
-                <ChevronDown className="size-4" />
-                Actions
-              </Button>
-            </DropdownMenuTrigger>
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
+            <StatusBadge
+              status={anomaly.status}
+            />
 
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>
-                Anomaly Actions
-              </DropdownMenuLabel>
+            <SeverityLabel
+              severity={anomaly.severity}
+            />
 
-              <DropdownMenuSeparator />
+            <span className="text-sm text-white/44">
+              Detected{" "}
+              <FormattedDate
+                value={anomaly.detectedAt}
+                relative
+              />
+            </span>
+          </div>
+        </div>
 
-              {(anomaly.status === "OPEN" || anomaly.status === "ACKNOWLEDGED") && (
-                <>
-                  <DropdownMenuItem onClick={() => handleStartVerification()}>
-                    Verify Recovery
-                  </DropdownMenuItem>
-
-                  {anomaly.status === "OPEN" && (
-                    <DropdownMenuItem onClick={handleAcknowledge}>
-                      Acknowledge
-                    </DropdownMenuItem>
-                  )}
-
-                  <DropdownMenuItem onClick={handleResolve}>
-                    Force Resolve
-                  </DropdownMenuItem>
-
-                  <DropdownMenuItem
-                    onClick={() => setFalsePositiveOpen(true)}
-                  >
-                    Mark false positive
-                  </DropdownMenuItem>
-                </>
-              )}
-
-              {anomaly.status === "VERIFYING_RECOVERY" && (
-                <>
-                  <DropdownMenuItem onClick={() => handleStartVerification()}>
-                    Re-verify Recovery
-                  </DropdownMenuItem>
-
-                  <DropdownMenuItem onClick={handleResolve}>
-                    Force Resolve
-                  </DropdownMenuItem>
-
-                  <DropdownMenuItem
-                    onClick={() => setFalsePositiveOpen(true)}
-                  >
-                    Mark false positive
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-
+        {/* Actions */}
+        <div className="flex shrink-0 items-center gap-2">
           <Button
-            onClick={handleInvestigate}
-            disabled={investigating}
+            variant="outline"
+            onClick={() =>
+              void handleInvestigate()
+            }
+            disabled={
+              pending === "investigate"
+            }
             className="gap-2"
           >
-            <Brain className="size-4" />
-            {investigating
+            {pending === "investigate" ? (
+              <Loader2
+                className="size-4 animate-spin"
+                aria-hidden
+              />
+            ) : (
+              <Brain
+                className="size-4"
+                aria-hidden
+              />
+            )}
+
+            {pending === "investigate"
               ? "Investigating…"
               : "Investigate with AI"}
           </Button>
+
+          {(isOpen ||
+            isAcknowledged) && (
+            <Button
+              onClick={() =>
+                void handleVerify()
+              }
+              disabled={
+                pending === "verify"
+              }
+              className="gap-2"
+            >
+              {pending === "verify" && (
+                <Loader2
+                  className="size-4 animate-spin"
+                  aria-hidden
+                />
+              )}
+
+              Verify recovery
+            </Button>
+          )}
+
+          {isActive && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  aria-label="More actions"
+                >
+                  <MoreHorizontal className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+
+              <DropdownMenuContent align="end">
+                {isOpen && (
+                  <DropdownMenuItem
+                    disabled={
+                      pending ===
+                      "acknowledge"
+                    }
+                    onSelect={() =>
+                      void handleAcknowledge()
+                    }
+                  >
+                    Acknowledge
+                  </DropdownMenuItem>
+                )}
+
+                <DropdownMenuItem
+                  onSelect={() =>
+                    setConfirmResolveOpen(
+                      true
+                    )
+                  }
+                >
+                  Resolve without verifying
+                </DropdownMenuItem>
+
+                <DropdownMenuSeparator />
+
+                <DropdownMenuItem
+                  onSelect={() =>
+                    setFpOpen(true)
+                  }
+                >
+                  Mark as false positive
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       </div>
 
-      {/* Main content */}
-      <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
-        {/* Left column */}
-        <div className="min-w-0 space-y-6">
-          {/* Header card */}
-          <Card className="!bg-[#0a0a0a] border-white/[0.08]">
-            <CardContent className="pt-6">
-              <div className="flex flex-wrap items-center gap-3 mb-4">
-                <TypeBadge type={anomaly.type} />
+      {/* Main body */}
+      <div className="grid min-w-0 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+        {/* Main content */}
+        <Tabs
+          value={activeTab}
+          onValueChange={setActiveTab}
+          className="min-w-0"
+        >
+          <TabsList>
+            <TabsTrigger
+              value="overview"
+              className={TAB_TRIGGER}
+            >
+              Overview
+            </TabsTrigger>
 
-                <SeverityBadge severity={anomaly.severity} />
+            <TabsTrigger
+              value="evidence"
+              className={TAB_TRIGGER}
+            >
+              Evidence
+            </TabsTrigger>
 
-                <StatusBadge status={anomaly.status} />
+            {investigation && (
+              <TabsTrigger
+                value="investigation"
+                className={TAB_TRIGGER}
+              >
+                AI investigation
+              </TabsTrigger>
+            )}
+          </TabsList>
 
-                <Badge
-                  variant="outline"
-                  className="text-white/44"
+          {/* ---------------------------------------------------------------- */}
+          {/* Overview                                                         */}
+          {/* ---------------------------------------------------------------- */}
+
+          <TabsContent
+            value="overview"
+            className="space-y-6 pt-5"
+          >
+            {/* Recovery */}
+            {showRecoveryPanel && (
+              <Panel
+                title="Recovery verification"
+                description={
+                  recoveryDescription
+                }
+                className="border-amber-500/20"
+                action={
+                  <Badge
+                    variant="secondary"
+                    className={
+                      recoveryBadge.className
+                    }
+                  >
+                    {recoveryBadge.text}
+                  </Badge>
+                }
+              >
+                <div className="space-y-5">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs text-white/70">
+                      <span>
+                        Healthy executions
+                      </span>
+
+                      <span className="font-mono tabular-nums">
+                        {healthyCount} /{" "}
+                        {requiredCount}
+                      </span>
+                    </div>
+
+                    <div
+                      role="progressbar"
+                      aria-label="Healthy executions observed"
+                      aria-valuemin={0}
+                      aria-valuemax={
+                        requiredCount
+                      }
+                      aria-valuenow={Math.min(
+                        healthyCount,
+                        requiredCount
+                      )}
+                      className="flex items-center gap-1.5"
+                    >
+                      {Array.from({
+                        length: Math.min(
+                          requiredCount,
+                          20
+                        ),
+                      }).map((_, i) => (
+                        <div
+                          key={i}
+                          className={`h-1.5 flex-1 rounded-full ${
+                            i < healthyCount
+                              ? "bg-green-500"
+                              : recoveryFailing
+                              ? "bg-red-500/30"
+                              : "bg-white/10"
+                          }`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  <dl className="grid gap-4 border-t border-white/[0.06] pt-4 sm:grid-cols-3">
+                    <Field
+                      label="Current value"
+                      mono
+                    >
+                      <span className="text-red-400">
+                        {anomaly.actualValue}
+                      </span>
+                    </Field>
+
+                    <Field
+                      label="Baseline"
+                      mono
+                    >
+                      {recoveryStatus
+                        ?.baseline
+                        ?.baseline ??
+                        anomaly.expectedValue}
+                    </Field>
+
+                    <Field
+                      label="Normal threshold"
+                      mono
+                    >
+                      {recoveryStatus
+                        ?.baseline
+                        ?.threshold ??
+                        "Within range"}
+                    </Field>
+                  </dl>
+
+                  {isVerifying && (
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          void handleVerify()
+                        }
+                        disabled={
+                          pending === "verify"
+                        }
+                        className="gap-2"
+                      >
+                        <RefreshCw
+                          className={`size-3.5 ${
+                            pending ===
+                            "verify"
+                              ? "animate-spin"
+                              : ""
+                          }`}
+                          aria-hidden
+                        />
+
+                        Restart verification
+                      </Button>
+
+                      <Button
+                        size="sm"
+                        onClick={() =>
+                          setConfirmResolveOpen(
+                            true
+                          )
+                        }
+                        className="gap-2"
+                      >
+                        <CheckCircle2
+                          className="size-3.5"
+                          aria-hidden
+                        />
+
+                        Resolve now
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </Panel>
+            )}
+
+            {/* Expected vs observed */}
+            <Panel title="Expected vs observed">
+              <dl className="grid gap-x-6 gap-y-5 sm:grid-cols-2">
+                <Field
+                  label="Expected"
+                  mono
                 >
-                  {anomaly.metric || "N/A"}
-                </Badge>
-              </div>
+                  {anomaly.expectedValue}
+                </Field>
 
-              <h1 className="text-2xl font-semibold tracking-tight mb-2 text-white/90">
-                Anomaly {anomaly.id.slice(0, 8)}
-              </h1>
+                <Field
+                  label="Observed"
+                  mono
+                >
+                  <span className="text-red-400">
+                    {anomaly.actualValue}
+                  </span>
+                </Field>
+              </dl>
 
-              <div className="flex flex-wrap items-center gap-4 text-sm text-white/44">
+              <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-5 border-t border-white/[0.06] pt-5 sm:grid-cols-4">
+                <Field
+                  label="Deviation"
+                  mono
+                >
+                  {formatSigma(
+                    anomaly.deviation
+                  )}
+                </Field>
+
+                <Field
+                  label="Confidence"
+                  mono
+                >
+                  {formatPercent(
+                    anomaly.confidence
+                  )}
+                </Field>
+
+                <Field
+                  label="Affected executions"
+                  mono
+                >
+                  {anomaly.affectedExecutions ??
+                    "—"}
+                </Field>
+
+                <Field label="Metric">
+                  {anomaly.metric || "—"}
+                </Field>
+              </dl>
+            </Panel>
+
+            {/* Timeline */}
+            <Panel title="Timeline">
+              <ol className="relative ml-1 space-y-5 border-l border-white/[0.08] pl-5">
+                {timeline.map((event) => (
+                  <li
+                    key={event.key}
+                    className="relative"
+                  >
+                    <span
+                      className={`absolute -left-[25px] top-1.5 size-2 rounded-full ring-4 ring-[#0a0a0a] ${event.dot}`}
+                      aria-hidden
+                    />
+
+                    <p className="text-sm text-white/90">
+                      {event.label}
+                    </p>
+
+                    <p className="mt-0.5 font-mono text-xs tabular-nums text-white/44">
+                      <FormattedDate
+                        value={event.at}
+                      />
+                    </p>
+                  </li>
+                ))}
+              </ol>
+            </Panel>
+          </TabsContent>
+
+          {/* ---------------------------------------------------------------- */}
+          {/* Evidence                                                         */}
+          {/* ---------------------------------------------------------------- */}
+
+          <TabsContent
+            value="evidence"
+            className="pt-5"
+          >
+            <Panel
+              title="Detector evidence"
+              description="Raw output from the statistical detector."
+              action={
+                detectorEvidence && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-2"
+                    onClick={() =>
+                      void copyEvidence(
+                        detectorEvidence
+                      )
+                    }
+                  >
+                    <Copy
+                      className="size-3.5"
+                      aria-hidden
+                    />
+                    Copy
+                  </Button>
+                )
+              }
+            >
+              {detectorEvidence ? (
+                <pre className="max-h-96 min-w-0 max-w-full overflow-auto whitespace-pre-wrap break-words rounded-lg bg-white/[0.03] p-4 font-mono text-xs leading-relaxed text-white/70 [overflow-wrap:anywhere]">
+                  {JSON.stringify(
+                    detectorEvidence,
+                    null,
+                    2
+                  )}
+                </pre>
+              ) : (
+                <p className="text-sm text-white/44">
+                  The detector didn&apos;t
+                  attach any evidence to this
+                  anomaly.
+                </p>
+              )}
+            </Panel>
+          </TabsContent>
+
+          {/* ---------------------------------------------------------------- */}
+          {/* AI investigation                                                  */}
+          {/* ---------------------------------------------------------------- */}
+
+          {investigation && (
+            <TabsContent
+              value="investigation"
+              className="pt-5"
+            >
+              <Panel
+                title="AI investigation"
+                description={
+                  investigation.configured ? (
+                    <>
+                      Generated by{" "}
+                      {investigation.model} on{" "}
+                      <FormattedDate
+                        value={
+                          investigation.generatedAt
+                        }
+                        pattern="MMM d, HH:mm"
+                      />
+                    </>
+                  ) : (
+                    "No AI provider is configured. Add a provider key to enable investigations."
+                  )
+                }
+                action={
+                  <span className="whitespace-nowrap text-xs text-white/44">
+                    {formatPercent(
+                      investigation.confidence
+                    )}{" "}
+                    confidence
+                  </span>
+                }
+              >
+                <div className="space-y-7">
+                  {/* Summary */}
+                  {investigation.summary && (
+                    <InvestigationSection title="Summary">
+                      <p className="text-sm leading-relaxed text-white/70">
+                        {investigation.summary}
+                      </p>
+                    </InvestigationSection>
+                  )}
+
+                  {/* Likely causes */}
+                  {!!investigation
+                    .likelyCauses
+                    ?.length && (
+                    <InvestigationSection title="Likely causes">
+                      <ul className="divide-y divide-white/[0.06]">
+                        {investigation.likelyCauses.map(
+                          (cause, i) => (
+                            <li
+                              key={i}
+                              className="py-3 first:pt-0 last:pb-0"
+                            >
+                              <p className="text-sm text-white/90">
+                                {cause.cause}
+                              </p>
+
+                              <p className="mt-1 text-xs text-white/44">
+                                {cause.category} ·{" "}
+                                {formatPercent(
+                                  cause.confidence
+                                )}{" "}
+                                confidence
+                              </p>
+
+                              {cause.uncertainty && (
+                                <p className="mt-1 text-xs text-amber-400">
+                                  Uncertainty:{" "}
+                                  {
+                                    cause.uncertainty
+                                  }
+                                </p>
+                              )}
+                            </li>
+                          )
+                        )}
+                      </ul>
+                    </InvestigationSection>
+                  )}
+
+                  {/* Supporting evidence */}
+                  {!!investigation.evidence
+                    ?.length && (
+                    <InvestigationSection title="Supporting evidence">
+                      <ul className="divide-y divide-white/[0.06]">
+                        {investigation.evidence.map(
+                          (item, i) => (
+                            <li
+                              key={i}
+                              className="py-3 first:pt-0 last:pb-0"
+                            >
+                              <p className="text-sm text-white/90">
+                                {item.type}:{" "}
+                                {item.description}
+                              </p>
+
+                              <p className="mt-1 text-xs text-white/44">
+                                Source:{" "}
+                                {item.source}
+                              </p>
+
+                              {item.inference && (
+                                <p className="mt-1 text-xs text-white/70">
+                                  Inference:{" "}
+                                  {
+                                    item.inference
+                                  }
+                                </p>
+                              )}
+                            </li>
+                          )
+                        )}
+                      </ul>
+                    </InvestigationSection>
+                  )}
+
+                  {/* Impact */}
+                  {investigation.impact && (
+                    <InvestigationSection title="Impact">
+                      <p className="text-sm leading-relaxed text-white/70">
+                        {investigation.impact}
+                      </p>
+                    </InvestigationSection>
+                  )}
+
+                  {/* Recommended actions */}
+                  {!!investigation
+                    .recommendedActions
+                    ?.length && (
+                    <InvestigationSection title="Recommended actions">
+                      <ul className="divide-y divide-white/[0.06]">
+                        {investigation.recommendedActions.map(
+                          (action, i) => (
+                            <li
+                              key={i}
+                              className="py-3 first:pt-0 last:pb-0"
+                            >
+                              <p className="text-sm text-white/90">
+                                {action.action}
+                              </p>
+
+                              <p className="mt-1 text-xs text-white/44">
+                                {action.rationale}
+                              </p>
+
+                              <p className="mt-1 text-xs text-white/44">
+                                Risk:{" "}
+                                {action.risk}{" "}
+                                · Effort:{" "}
+                                {action.effort}
+                              </p>
+                            </li>
+                          )
+                        )}
+                      </ul>
+                    </InvestigationSection>
+                  )}
+                </div>
+              </Panel>
+            </TabsContent>
+          )}
+        </Tabs>
+
+        {/* ------------------------------------------------------------------ */}
+        {/* Sidebar                                                             */}
+        {/* ------------------------------------------------------------------ */}
+
+        <aside className="min-w-0">
+          <Panel title="Details">
+            <dl className="space-y-4">
+              <Field label="Workflow">
                 <Link
                   href={`/workflows/${anomaly.workflowId}`}
-                  className="hover:underline font-medium text-white/90"
+                  className="transition-colors hover:underline"
                 >
                   {anomaly.workflowName}
                 </Link>
+              </Field>
 
-                {anomaly.nodeId && (
-                  <>
-                    <span>→</span>
+              {anomaly.nodeId && (
+                <Field label="Node">
+                  <code className="break-all font-mono text-xs text-white/70">
+                    {anomaly.nodeId}
+                  </code>
 
-                    <code className="max-w-full break-all bg-white/[0.06] px-1.5 py-0.5 rounded text-white/70">
-                      {anomaly.nodeId}
-                    </code>
-                  </>
-                )}
-
-                {anomaly.nodeType && (
-                  <>
-                    <span>→</span>
-                    <span className="text-white/44">
+                  {anomaly.nodeType && (
+                    <span className="mt-0.5 block text-xs text-white/44">
                       {anomaly.nodeType}
                     </span>
-                  </>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Tabs */}
-          <Tabs
-            value={activeTab}
-            onValueChange={setActiveTab}
-            className="w-full"
-          >
-            <TabsList className="w-full">
-              <TabsTrigger
-                value="overview"
-                className="data-[state=active]:bg-white data-[state=active]:text-[#050505]"
-              >
-                Overview
-              </TabsTrigger>
-
-              <TabsTrigger
-                value="evidence"
-                className="data-[state=active]:bg-white data-[state=active]:text-[#050505]"
-              >
-                Evidence
-              </TabsTrigger>
-
-              {investigation && (
-                <TabsTrigger
-                  value="investigation"
-                  className="data-[state=active]:bg-white data-[state=active]:text-[#050505]"
-                >
-                  AI Investigation
-                </TabsTrigger>
-              )}
-            </TabsList>
-
-            {/* OVERVIEW */}
-            <TabsContent
-              value="overview"
-              className="space-y-6 pt-4"
-            >
-              {/* RECOVERY VERIFICATION PANEL */}
-              {(anomaly.status === "VERIFYING_RECOVERY" || recoveryStatus) && (
-                <Card className="!bg-[#0a0a0a] border-amber-500/20 bg-amber-500/5">
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="flex items-center gap-2 text-sm font-medium text-white/90">
-                        <Activity className="size-4 text-amber-400 animate-pulse" />
-                        RECOVERY VERIFICATION
-                      </CardTitle>
-
-                      {recoveryStatus?.anomalyStatus === "RESOLVED" ? (
-                        <Badge variant="secondary" className="bg-green-500/10 text-green-400 border-green-500/20 gap-1">
-                          <CheckCircle2 className="size-3" />
-                          RECOVERY VERIFIED
-                        </Badge>
-                      ) : recoveryStatus && recoveryStatus.observedCount > 0 && recoveryStatus.healthyCount === 0 ? (
-                        <Badge variant="secondary" className="bg-red-500/10 text-red-400 border-red-500/20 gap-1">
-                          <XCircle className="size-3" />
-                          RECOVERY NOT VERIFIED
-                        </Badge>
-                      ) : (
-                        <Badge variant="secondary" className="bg-amber-500/10 text-amber-400 border-amber-500/20 gap-1">
-                          <RefreshCw className="size-3 animate-spin" />
-                          {recoveryStatus && recoveryStatus.observedCount > 0 ? "Verifying" : "Waiting for recovery data"}
-                        </Badge>
-                      )}
-                    </div>
-                    <CardDescription className="text-white/44">
-                      {recoveryStatus?.anomalyStatus === "RESOLVED"
-                        ? "The workflow has returned to normal. 5 healthy executions observed."
-                        : recoveryStatus && recoveryStatus.observedCount > 0 && recoveryStatus.healthyCount === 0
-                        ? "Metric remains outside expected baseline range. Resolution blocked until recovery is verified."
-                        : "FlowOps is observing subsequent executions to verify the metric returns to normal baseline."}
-                    </CardDescription>
-                  </CardHeader>
-
-                  <CardContent className="space-y-4">
-                    {/* Execution progress indicators */}
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-xs text-white/70">
-                        <span>Healthy Execution Progress</span>
-                        <span className="font-mono font-medium">
-                          {recoveryStatus ? recoveryStatus.healthyCount : anomaly.recoveryHealthyCount || 0} /{" "}
-                          {recoveryStatus ? recoveryStatus.requiredCount : anomaly.recoveryRequiredCount || 5} healthy executions
-                        </span>
-                      </div>
-
-                      {/* Dot indicators */}
-                      <div className="flex items-center gap-2 pt-1">
-                        {Array.from({ length: recoveryStatus ? recoveryStatus.requiredCount : 5 }).map((_, i) => {
-                          const healthyCount = recoveryStatus ? recoveryStatus.healthyCount : 0;
-                          const isDone = i < healthyCount;
-                          const isFailed = recoveryStatus && recoveryStatus.observedCount > 0 && healthyCount === 0;
-
-                          return (
-                            <div
-                              key={i}
-                              className={`h-2 flex-1 rounded-full transition-all ${
-                                isDone
-                                  ? "bg-green-500 shadow-sm shadow-green-500/50"
-                                  : isFailed
-                                  ? "bg-red-500/30 border border-red-500/40"
-                                  : "bg-white/10"
-                              }`}
-                            />
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Baseline vs Current metrics */}
-                    <div className="grid gap-3 sm:grid-cols-3 pt-2 text-xs border-t border-white/[0.06]">
-                      <div className="space-y-1">
-                        <span className="text-white/44">Current Metric</span>
-                        <p className="font-mono font-medium text-destructive">
-                          {anomaly.actualValue}
-                        </p>
-                      </div>
-
-                      <div className="space-y-1">
-                        <span className="text-white/44">Learned Baseline</span>
-                        <p className="font-mono font-medium text-white/90">
-                          {recoveryStatus?.baseline?.baseline || anomaly.expectedValue}
-                        </p>
-                      </div>
-
-                      <div className="space-y-1">
-                        <span className="text-white/44">Normal Threshold</span>
-                        <p className="font-mono font-medium text-white/90">
-                          {recoveryStatus?.baseline?.threshold || "Within range"}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Action buttons */}
-                    <div className="flex flex-wrap items-center gap-3 pt-2">
-                      {anomaly.status === "VERIFYING_RECOVERY" && (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleStartVerification()}
-                            disabled={verifyingPending}
-                            className="gap-2"
-                          >
-                            <RefreshCw className={`size-3.5 ${verifyingPending ? "animate-spin" : ""}`} />
-                            Re-verify Recovery
-                          </Button>
-
-                          <Button
-                            size="sm"
-                            variant="default"
-                            onClick={handleResolve}
-                            className="gap-2"
-                          >
-                            <CheckCircle2 className="size-3.5" />
-                            Confirm Resolution
-                          </Button>
-                        </>
-                      )}
-
-                      {anomaly.status === "RESOLVED" && (
-                        <div className="flex items-center gap-2 text-xs text-green-400">
-                          <CheckCircle2 className="size-4" />
-                          Verified by FlowOps Reliability Engine
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* What Happened & Impact */}
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Card className="!bg-[#0a0a0a] border-white/[0.08]">
-                  <CardHeader>
-                    <CardTitle className="text-sm font-medium text-white/90">
-                      What Happened
-                    </CardTitle>
-
-                    <CardDescription className="text-white/44">
-                      Expected vs observed behavior
-                    </CardDescription>
-                  </CardHeader>
-
-                  <CardContent className="space-y-3">
-                    <div>
-                      <p className="text-sm text-white/44">
-                        Expected
-                      </p>
-
-                      <p className="font-mono text-sm text-white/90">
-                        {anomaly.expectedValue}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-sm text-white/44">
-                        Observed
-                      </p>
-
-                      <p className="font-mono text-sm text-destructive">
-                        {anomaly.actualValue}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-sm text-white/44">
-                        Deviation
-                      </p>
-
-                      <p className="font-mono text-sm text-white/90">
-                        {anomaly.deviation > 0 ? "+" : ""}
-                        {anomaly.deviation.toFixed(2)}σ
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-sm text-white/44">
-                        Confidence
-                      </p>
-
-                      <p className="font-mono text-sm text-white/90">
-                        {(anomaly.confidence * 100).toFixed(0)}%
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card className="!bg-[#0a0a0a] border-white/[0.08]">
-                  <CardHeader>
-                    <CardTitle className="text-sm font-medium text-white/90">
-                      Impact
-                    </CardTitle>
-
-                    <CardDescription className="text-white/44">
-                      How many executions are affected
-                    </CardDescription>
-                  </CardHeader>
-
-                  <CardContent>
-                    <p className="text-3xl font-bold text-white/90">
-                      {anomaly.affectedExecutions}
-                    </p>
-
-                    <p className="text-sm text-white/44">
-                      {anomaly.affectedExecutions === 1
-                        ? "Single execution"
-                        : `${anomaly.affectedExecutions} executions affected`}
-                    </p>
-                  </CardContent>
-                </Card>
-
-                <Card className="sm:col-span-2 !bg-[#0a0a0a] border-white/[0.08]">
-                  <CardHeader>
-                    <CardTitle className="text-sm font-medium text-white/90">
-                      Timeline
-                    </CardTitle>
-
-                    <CardDescription className="text-white/44">
-                      Detection and update history
-                    </CardDescription>
-                  </CardHeader>
-
-                  <CardContent className="space-y-2">
-                    <div className="flex items-center gap-3 text-sm">
-                      <div className="flex items-center gap-2">
-                        <div className="size-2 rounded-full bg-blue-500" />
-                        <span className="text-white/70">
-                          Detected
-                        </span>
-                      </div>
-
-                      <span className="font-mono text-white/44">
-                        {format(
-                          new Date(anomaly.detectedAt),
-                          "MMM d, yyyy HH:mm:ss"
-                        )}
-                      </span>
-                    </div>
-
-                    {recoveryStatus?.startedAt && (
-                      <div className="flex items-center gap-3 text-sm">
-                        <div className="flex items-center gap-2">
-                          <div className="size-2 rounded-full bg-amber-500 animate-pulse" />
-                          <span className="text-white/70">
-                            Recovery verification started
-                          </span>
-                        </div>
-
-                        <span className="font-mono text-white/44">
-                          {format(
-                            new Date(recoveryStatus.startedAt),
-                            "MMM d, yyyy HH:mm:ss"
-                          )}
-                        </span>
-                      </div>
-                    )}
-
-                    <div className="flex items-center gap-3 text-sm">
-                      <div className="flex items-center gap-2">
-                        <div className="size-2 rounded-full bg-purple-500" />
-                        <span className="text-white/70">
-                          Last updated
-                        </span>
-                      </div>
-
-                      <span className="font-mono text-white/44">
-                        {format(
-                          new Date(anomaly.updatedAt),
-                          "MMM d, yyyy HH:mm:ss"
-                        )}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-3 text-sm">
-                      <div className="flex items-center gap-2">
-                        <div className="size-2 rounded-full bg-gray-500" />
-                        <span className="text-white/70">
-                          Created
-                        </span>
-                      </div>
-
-                      <span className="font-mono text-white/44">
-                        {format(
-                          new Date(anomaly.createdAt),
-                          "MMM d, yyyy HH:mm:ss"
-                        )}
-                      </span>
-                    </div>
-
-                    {anomaly.executionId && (
-                      <div className="flex items-center gap-3 text-sm">
-                        <div className="flex items-center gap-2">
-                          <div className="size-2 rounded-full bg-green-500" />
-                          <span className="text-white/70">
-                            Related execution
-                          </span>
-                        </div>
-
-                        <Link
-                          href={`/executions/${anomaly.executionId}`}
-                          className="font-mono text-sm text-white/90 hover:underline"
-                        >
-                          {anomaly.executionId.slice(0, 8)}…
-                        </Link>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
-            </TabsContent>
-
-            {/* EVIDENCE */}
-            <TabsContent
-              value="evidence"
-              className="space-y-4 pt-4"
-            >
-              <Card className="!bg-[#0a0a0a] border-white/[0.08]">
-                <CardHeader>
-                  <CardTitle className="text-sm font-medium text-white/90">
-                    Structured Evidence
-                  </CardTitle>
-
-                  <CardDescription className="text-white/44">
-                    Machine-readable evidence from the statistical detector
-                  </CardDescription>
-                </CardHeader>
-
-                <CardContent>
-                  <pre className="min-w-0 max-w-full bg-white/[0.03] p-4 rounded-md text-sm font-mono text-white/70 overflow-auto max-h-96 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-                    {JSON.stringify(
-                      anomaly.evidence,
-                      null,
-                      2
-                    )}
-                  </pre>
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            {/* AI INVESTIGATION */}
-            {investigation && (
-              <TabsContent
-                value="investigation"
-                className="space-y-6 pt-4"
-              >
-                <Card className="border-primary/30 bg-primary/5 !bg-[#0a0a0a] !border-primary/20">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-sm font-medium text-white/90">
-                      <Brain className="size-4" />
-                      AI Investigation Result
-                    </CardTitle>
-
-                    <CardDescription className="text-white/44">
-                      {investigation.configured
-                        ? `Generated by ${investigation.model} at ${format(
-                            new Date(investigation.generatedAt),
-                            "MMM d, HH:mm"
-                          )}`
-                        : "AI service not configured — configure a provider key to enable"}
-
-                      <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-white/[0.06] px-2 py-0.5 text-xs">
-                        Confidence:{" "}
-                        {(investigation.confidence * 100).toFixed(0)}%
-                      </span>
-                    </CardDescription>
-                  </CardHeader>
-
-                  <CardContent className="space-y-6">
-                    {/* SUMMARY */}
-                    {investigation.summary && (
-                      <div className="space-y-2">
-                        <h4 className="font-medium flex items-center gap-2 text-white/90">
-                          <FileText className="size-4" />
-                          Summary
-                        </h4>
-
-                        <p className="text-sm text-white/70">
-                          {investigation.summary}
-                        </p>
-                      </div>
-                    )}
-
-                    {/* LIKELY CAUSES */}
-                    {investigation.likelyCauses &&
-                      investigation.likelyCauses.length > 0 && (
-                        <div className="space-y-2">
-                          <h4 className="font-medium flex items-center gap-2 text-white/90">
-                            <Target className="size-4" />
-                            Likely Causes
-                          </h4>
-
-                          <ul className="space-y-2">
-                            {investigation.likelyCauses.map(
-                              (cause, i) => (
-                                <li
-                                  key={i}
-                                  className="text-sm border-l-2 border-primary/30 pl-3"
-                                >
-                                  <p className="font-medium text-white/90">
-                                    {cause.cause}
-                                  </p>
-
-                                  <p className="text-xs text-white/44">
-                                    Category: {cause.category} •
-                                    Confidence:{" "}
-                                    {(
-                                      cause.confidence * 100
-                                    ).toFixed(0)}
-                                    %
-                                  </p>
-
-                                  {cause.uncertainty && (
-                                    <p className="text-xs text-amber-400">
-                                      Uncertainty:{" "}
-                                      {cause.uncertainty}
-                                    </p>
-                                  )}
-                                </li>
-                              )
-                            )}
-                          </ul>
-                        </div>
-                      )}
-
-                    {/* EVIDENCE */}
-                    {investigation.evidence &&
-                      investigation.evidence.length > 0 && (
-                        <div className="space-y-2">
-                          <h4 className="font-medium flex items-center gap-2 text-white/90">
-                            <Shield className="size-4" />
-                            Evidence
-                          </h4>
-
-                          <ul className="space-y-2">
-                            {investigation.evidence.map(
-                              (item, i) => (
-                                <li
-                                  key={i}
-                                  className="text-sm border-l-2 border-green-500/30 pl-3"
-                                >
-                                  <p className="font-medium text-white/90">
-                                    {item.type}:{" "}
-                                    {item.description}
-                                  </p>
-
-                                  <p className="text-xs text-white/44">
-                                    Source: {item.source}
-                                  </p>
-
-                                  {item.inference && (
-                                    <p className="text-xs text-blue-400">
-                                      Inference:{" "}
-                                      {item.inference}
-                                    </p>
-                                  )}
-                                </li>
-                              )
-                            )}
-                          </ul>
-                        </div>
-                      )}
-
-                    {/* IMPACT */}
-                    {investigation.impact && (
-                      <div className="space-y-2 border-l-2 border-amber-500/30 pl-3">
-                        <h4 className="font-medium flex items-center gap-2 text-white/90">
-                          <AlertTriangle className="size-4" />
-                          Impact
-                        </h4>
-
-                        <p className="text-sm text-white/70">
-                          {investigation.impact}
-                        </p>
-                      </div>
-                    )}
-
-                    {/* RECOMMENDED ACTIONS */}
-                    {investigation.recommendedActions &&
-                      investigation.recommendedActions.length > 0 && (
-                        <div className="space-y-2">
-                          <h4 className="font-medium flex items-center gap-2 text-white/90">
-                            <Zap className="size-4" />
-                            Recommended Actions
-                          </h4>
-
-                          <ul className="space-y-2">
-                            {investigation.recommendedActions.map(
-                              (action, i) => (
-                                <li
-                                  key={i}
-                                  className="text-sm border-l-2 border-purple-500/30 pl-3"
-                                >
-                                  <p className="font-medium text-white/90">
-                                    {action.action}
-                                  </p>
-
-                                  <p className="text-xs text-white/44">
-                                    Rationale:{" "}
-                                    {action.rationale}
-                                  </p>
-
-                                  <div className="flex gap-4 mt-1 text-xs text-white/44">
-                                    <span>
-                                      Risk: {action.risk}
-                                    </span>
-
-                                    <span>
-                                      Effort: {action.effort}
-                                    </span>
-                                  </div>
-                                </li>
-                              )
-                            )}
-                          </ul>
-                        </div>
-                      )}
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            )}
-          </Tabs>
-        </div>
-
-        {/* Right column */}
-        <div className="min-w-0 space-y-4">
-          <Card className="!bg-[#0a0a0a] border-white/[0.08]">
-            <CardHeader>
-              <CardTitle className="text-sm font-medium text-white/90">
-                Key Facts
-              </CardTitle>
-            </CardHeader>
-
-            <CardContent className="space-y-3 text-sm">
-              <dl className="grid gap-2 grid-cols-[auto_1fr]">
-                <dt className="text-white/44">
-                  Anomaly ID
-                </dt>
-
-                <dd className="font-mono text-white/90 break-all">
-                  {anomaly.id}
-                </dd>
-
-                <dt className="text-white/44">
-                  Dedup Key
-                </dt>
-
-                <dd className="min-w-0 font-mono text-xs break-all text-white/70">
-                  {anomaly.dedupKey}
-                </dd>
-
-                <dt className="text-white/44">
-                  Affected Executions
-                </dt>
-
-                <dd className="text-white/90">
-                  {anomaly.affectedExecutions}
-                </dd>
-
-                <dt className="text-white/44">
-                  Deviation
-                </dt>
-
-                <dd className="font-mono text-white/90">
-                  {anomaly.deviation.toFixed(2)}σ
-                </dd>
-
-                <dt className="text-white/44">
-                  Confidence
-                </dt>
-
-                <dd className="text-white/90">
-                  {(anomaly.confidence * 100).toFixed(0)}%
-                </dd>
-              </dl>
-            </CardContent>
-          </Card>
-
-          <Card className="!bg-[#0a0a0a] border-white/[0.08]">
-            <CardHeader>
-              <CardTitle className="text-sm font-medium text-white/90">
-                Quick Actions
-              </CardTitle>
-            </CardHeader>
-
-            <CardContent className="space-y-2">
-              {(anomaly.status === "OPEN" || anomaly.status === "ACKNOWLEDGED") && (
-                <>
-                  <Button
-                    variant="default"
-                    className="w-full justify-start gap-2 bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border-amber-500/30"
-                    onClick={() => handleStartVerification()}
-                    disabled={verifyingPending}
-                  >
-                    <Activity className={`size-4 ${verifyingPending ? "animate-spin" : ""}`} />
-                    Verify Recovery
-                  </Button>
-
-                  {anomaly.status === "OPEN" && (
-                    <Button
-                      variant="outline"
-                      className="w-full justify-start"
-                      onClick={handleAcknowledge}
-                    >
-                      Acknowledge
-                    </Button>
                   )}
-
-                  <Button
-                    variant="destructive"
-                    className="w-full justify-start"
-                    onClick={() => setFalsePositiveOpen(true)}
-                  >
-                    Mark False Positive
-                  </Button>
-                </>
+                </Field>
               )}
 
-              {anomaly.status === "VERIFYING_RECOVERY" && (
-                <>
-                  <Button
-                    variant="outline"
-                    className="w-full justify-start gap-2"
-                    onClick={() => handleStartVerification()}
-                    disabled={verifyingPending}
+              {anomaly.executionId && (
+                <Field label="Triggering execution">
+                  <Link
+                    href={`/executions/${anomaly.executionId}`}
+                    className="font-mono text-xs transition-colors hover:underline"
                   >
-                    <RefreshCw className={`size-4 ${verifyingPending ? "animate-spin" : ""}`} />
-                    Re-verify Recovery
-                  </Button>
-
-                  <Button
-                    variant="default"
-                    className="w-full justify-start gap-2"
-                    onClick={handleResolve}
-                  >
-                    <CheckCircle2 className="size-4" />
-                    Force Resolve
-                  </Button>
-
-                  <Button
-                    variant="destructive"
-                    className="w-full justify-start"
-                    onClick={() => setFalsePositiveOpen(true)}
-                  >
-                    Mark False Positive
-                  </Button>
-                </>
+                    {anomaly.executionId.slice(
+                      0,
+                      8
+                    )}
+                  </Link>
+                </Field>
               )}
 
-              <Button
-                variant="outline"
-                className="w-full justify-start"
-                onClick={handleInvestigate}
-                disabled={investigating}
+              <Field
+                label="Anomaly ID"
+                mono
               >
-                {investigating
-                  ? "Investigating…"
-                  : "Run AI Investigation"}
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
+                <span className="break-all text-xs text-white/70">
+                  {anomaly.id}
+                </span>
+              </Field>
+
+              {anomaly.dedupKey && (
+                <Field
+                  label="Dedup key"
+                  mono
+                >
+                  <span className="break-all text-xs text-white/70">
+                    {anomaly.dedupKey}
+                  </span>
+                </Field>
+              )}
+            </dl>
+          </Panel>
+        </aside>
       </div>
 
-      {/* False positive dialog */}
+      {/* -------------------------------------------------------------------- */}
+      {/* Resolve confirmation                                                 */}
+      {/* -------------------------------------------------------------------- */}
+
       <Dialog
-        open={falsePositiveOpen}
-        onOpenChange={setFalsePositiveOpen}
+        open={confirmResolveOpen}
+        onOpenChange={(open) => {
+          if (
+            !open &&
+            pending !== "resolve"
+          ) {
+            setConfirmResolveOpen(false);
+          }
+        }}
       >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              Mark as false positive
+              Resolve without verifying?
             </DialogTitle>
 
             <DialogDescription>
-              Record why this anomaly is not a real issue.
-              This is kept for the audit trail and helps the
-              detector avoid repeating it.
+              This closes the anomaly without
+              confirming the metric is back
+              within its baseline. If the
+              problem is still happening, it
+              will be detected again as a new
+              anomaly.
             </DialogDescription>
           </DialogHeader>
-
-          <div className="space-y-2">
-            <Label htmlFor="fp-reason">
-              Reason
-            </Label>
-
-            <Input
-              id="fp-reason"
-              autoFocus
-              value={falsePositiveReason}
-              onChange={(e) =>
-                setFalsePositiveReason(e.target.value)
-              }
-              placeholder="e.g. Expected during deploy window"
-            />
-          </div>
 
           <DialogFooter>
             <Button
               type="button"
               variant="ghost"
-              onClick={() => {
-                setFalsePositiveOpen(false);
-                setFalsePositiveReason("");
-              }}
+              disabled={
+                pending === "resolve"
+              }
+              onClick={() =>
+                setConfirmResolveOpen(false)
+              }
             >
               Cancel
             </Button>
 
             <Button
               type="button"
-              onClick={submitFalsePositive}
               disabled={
-                !falsePositiveReason.trim() ||
-                falsePositivePending
+                pending === "resolve"
+              }
+              onClick={() =>
+                void handleResolve()
               }
             >
-              {falsePositivePending
-                ? "Saving…"
-                : "Mark as false positive"}
+              {pending === "resolve"
+                ? "Resolving…"
+                : "Resolve anomaly"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* -------------------------------------------------------------------- */}
+      {/* False positive                                                       */}
+      {/* -------------------------------------------------------------------- */}
+
+      <Dialog
+        open={fpOpen}
+        onOpenChange={(open) => {
+          if (
+            !open &&
+            !fpSubmitting
+          ) {
+            closeFalsePositive();
+          }
+        }}
+      >
+        <DialogContent>
+          <form
+            onSubmit={submitFalsePositive}
+            className="space-y-4"
+          >
+            <DialogHeader>
+              <DialogTitle>
+                Mark as false positive
+              </DialogTitle>
+
+              <DialogDescription>
+                Explain why this anomaly
+                isn&apos;t a real issue. The
+                reason is saved to the audit
+                trail and helps the detector
+                avoid repeating it.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-2">
+              <Label htmlFor="fp-reason">
+                Reason
+              </Label>
+
+              <Input
+                id="fp-reason"
+                autoFocus
+                value={fpReason}
+                maxLength={
+                  REASON_MAX_LENGTH
+                }
+                onChange={(e) =>
+                  setFpReason(
+                    e.target.value
+                  )
+                }
+                placeholder="Expected during deploy window"
+              />
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={fpSubmitting}
+                onClick={
+                  closeFalsePositive
+                }
+              >
+                Cancel
+              </Button>
+
+              <Button
+                type="submit"
+                disabled={
+                  !fpReason.trim() ||
+                  fpSubmitting
+                }
+              >
+                {fpSubmitting
+                  ? "Saving…"
+                  : "Mark as false positive"}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

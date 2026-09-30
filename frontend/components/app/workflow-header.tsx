@@ -1,22 +1,33 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, CheckCircle2, Clock3, Play, Sparkles, Webhook } from "lucide-react";
+import {
+  Play,
+  Sparkles,
+  Webhook,
+  Save,
+  Upload,
+  Trash2,
+  Loader2,
+} from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { runWorkflow, updateWorkflow, getErrorMessage } from "@/lib/api";
 import type { WorkflowDetail, WorkflowStatus } from "@/types";
-
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { SegmentedControl } from "@/components/ui/segmented-control";
+
+type ActiveView = "editor" | "executions" | "anomalies";
 
 interface WorkflowHeaderProps {
   workflow: WorkflowDetail;
@@ -28,20 +39,48 @@ interface WorkflowHeaderProps {
   onRename: (name: string) => void;
   onRun: () => void;
   onGenerate: () => void;
+  onSave: () => void;
+  onPublish: () => void;
+  onDelete: () => void;
+  savePending: boolean;
+  publishPending: boolean;
+  deletePending: boolean;
   onWebhook: () => void;
   hasWebhookTrigger: boolean;
-  activeView: "editor" | "executions" | "anomalies";
-  onViewChange: (view: "editor" | "executions" | "anomalies") => void;
+  activeView: ActiveView;
+  onViewChange: (view: ActiveView) => void;
 }
 
-const statusVariant: Record<
+const statusConfig: Record<
   WorkflowStatus,
-  "secondary" | "success" | "outline"
+  { label: string; dot: string; className: string }
 > = {
-  DRAFT: "secondary",
-  PUBLISHED: "success",
-  ARCHIVED: "outline",
+  DRAFT: {
+    label: "Draft",
+    dot: "bg-amber-400",
+    className: "border-white/[0.10] bg-white/[0.045] text-white/60",
+  },
+  PUBLISHED: {
+    label: "Published",
+    dot: "bg-emerald-400",
+    className: "border-emerald-400/20 bg-emerald-400/[0.07] text-emerald-300",
+  },
+  ARCHIVED: {
+    label: "Archived",
+    dot: "bg-white/30",
+    className: "border-white/[0.10] bg-white/[0.035] text-white/45",
+  },
 };
+
+const views = [
+  { value: "editor" as const, label: "Editor" },
+  { value: "executions" as const, label: "Executions" },
+  { value: "anomalies" as const, label: "Anomalies" },
+];
+
+function Divider() {
+  return <div className="mx-1 h-5 w-px shrink-0 bg-white/[0.08]" />;
+}
 
 export function WorkflowHeader({
   workflow,
@@ -53,6 +92,12 @@ export function WorkflowHeader({
   onRename,
   onRun,
   onGenerate,
+  onSave,
+  onPublish,
+  onDelete,
+  savePending,
+  publishPending,
+  deletePending,
   onWebhook,
   hasWebhookTrigger,
   activeView,
@@ -83,118 +128,218 @@ export function WorkflowHeader({
     onError: (err) => toast.error(getErrorMessage(err)),
   });
 
-  const views: { value: "editor" | "executions" | "anomalies"; label: string }[] = [
-    { value: "editor", label: "Editor" },
-    { value: "executions", label: "Executions" },
-    { value: "anomalies", label: "Anomalies" },
-  ];
+  const running = runMutation.isPending || runPending;
+  const status = statusConfig[workflow.status];
 
   return (
-    <TooltipProvider delayDuration={300}>
-      <header className="flex h-16 shrink-0 items-center gap-4 border-b border-white/[0.07] bg-[#0a0a0a] px-4 lg:px-6">
-        {/* LEFT: Workflow identity */}
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          <NameField
-            name={workflow.name}
-            pending={namePending || renameMutation.isPending}
-            onRename={(n) => renameMutation.mutate(n)}
-            className="w-full lg:w-72"
-          />
+    <TooltipProvider delayDuration={250}>
+      <header
+        className={cn(
+          "relative z-30 h-[60px] shrink-0",
+          "border-b border-white/[0.07]",
+          "bg-[#090909]/95 backdrop-blur-xl",
+        )}
+      >
+        <div className="flex h-full w-full items-center gap-4 px-4 lg:px-5">
+          {/* ============ LEFT: identity (flexes + truncates) ============ */}
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <NameField
+              name={workflow.name}
+              pending={namePending || renameMutation.isPending}
+              onRename={(name) => renameMutation.mutate(name)}
+            />
 
-          <Badge variant={statusVariant[workflow.status]}>
-            {workflow.status}
-            {workflow.status === "PUBLISHED" && version != null && (
-              <span className="ml-1 opacity-80">v{version}</span>
+            <div
+              className={cn(
+                "flex shrink-0 items-center rounded-md border",
+                "px-2 py-1 text-[11px] font-medium leading-none",
+                status.className,
+              )}
+            >
+              <span
+                className={cn("mr-1.5 size-1.5 rounded-full", status.dot)}
+              />
+              <span>{status.label}</span>
+              {workflow.status === "PUBLISHED" && version != null && (
+                <span className="ml-1.5 text-white/35">v{version}</span>
+              )}
+            </div>
+
+            {dirty && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="flex shrink-0 items-center">
+                    <span className="size-1.5 rounded-full bg-amber-400" />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>You have unsaved changes</TooltipContent>
+              </Tooltip>
             )}
-          </Badge>
+          </div>
 
-          {/* Unsaved changes indicator */}
-          <span
-            className={cn(
-              "flex items-center gap-1.5 text-xs text-muted-foreground transition-opacity",
-              dirty ? "opacity-100" : "opacity-0",
-            )}
-            aria-live="polite"
-          >
-            <span className="size-2 rounded-full bg-amber-500" />
-            Unsaved changes
-          </span>
-        </div>
+          {/* ============ CENTER: view toggle (never shrinks) ============ */}
+          <div className="shrink-0 rounded-full [&>*]:rounded-full [&_button]:rounded-full">
+            <SegmentedControl
+              tabs={views}
+              value={activeView}
+              onValueChange={onViewChange}
+            />
+          </div>
 
-        {/* CENTER: Segmented Control - perfectly centered */}
-        <div className="flex items-center justify-center flex-1">
-          <SegmentedControl
-            tabs={views}
-            value={activeView}
-            onValueChange={onViewChange}
-          />
-        </div>
-
-        {/* RIGHT: Actions */}
-        <div className="flex items-center gap-2 shrink-0 flex-1 justify-end">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onGenerate}
-                className="text-primary"
-              >
-                <Sparkles className="size-4" />
-                Create with AI
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Generate workflow with AI</TooltipContent>
-          </Tooltip>
-
-          {hasWebhookTrigger && (
+          {/* ============ RIGHT: actions (never shrinks) ============ */}
+          <div className="flex flex-1 shrink-0 items-center justify-end gap-1.5">
+            {/* Create with AI */}
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="outline" size="sm" onClick={onWebhook}>
-                  <Webhook className="size-4" />
-                  Webhook
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={onGenerate}
+                  aria-label="Create with AI"
+                  className="size-8 shrink-0 text-violet-300 hover:bg-violet-400/[0.08] hover:text-violet-200"
+                >
+                  <Sparkles className="size-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Manage inbound webhook</TooltipContent>
+              <TooltipContent>Create with AI</TooltipContent>
             </Tooltip>
-          )}
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span tabIndex={canRun ? -1 : 0}>
+            {/* Webhook (always visible; enabled only with a webhook trigger) */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="shrink-0">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={onWebhook}
+                    disabled={!hasWebhookTrigger}
+                    aria-label="Manage webhook"
+                    className="size-8 text-white/55 hover:bg-white/[0.06] hover:text-white disabled:opacity-40"
+                  >
+                    <Webhook className="size-4" />
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                {hasWebhookTrigger
+                  ? "Manage inbound webhook"
+                  : "Add a Webhook Trigger node to enable"}
+              </TooltipContent>
+            </Tooltip>
+
+            <Divider />
+
+            {/* Delete */}
+            <Tooltip>
+              <TooltipTrigger asChild>
                 <Button
-                  variant="default"
-                  size="sm"
-                  onClick={runMutation.isPending ? undefined : onRun}
-                  disabled={!canRun || runMutation.isPending}
+                  variant="ghost"
+                  size="icon"
+                  onClick={onDelete}
+                  disabled={deletePending}
+                  aria-label="Delete workflow"
+                  className="size-8 shrink-0 text-white/40 hover:bg-red-500/[0.10] hover:text-red-400"
                 >
-                  <Play className="size-4" />
-                  {runMutation.isPending ? "Starting…" : "Run"}
+                  {deletePending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="size-4" />
+                  )}
                 </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>
-              {canRun
-                ? "Run the latest published version"
-                : "Publish a version to run it"}
-            </TooltipContent>
-          </Tooltip>
+              </TooltipTrigger>
+              <TooltipContent>Delete workflow</TooltipContent>
+            </Tooltip>
+
+            {/* Save */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="shrink-0">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={onSave}
+                    disabled={!dirty || savePending}
+                    aria-label="Save"
+                    className="size-8 text-white/60 hover:bg-white/[0.06] hover:text-white disabled:opacity-40"
+                  >
+                    {savePending ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Save className="size-4" />
+                    )}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                {dirty ? "Save workflow changes" : "No unsaved changes"}
+              </TooltipContent>
+            </Tooltip>
+
+            {/* Publish */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onPublish}
+                  disabled={publishPending}
+                  className="h-8 shrink-0 gap-1.5 border-white/[0.12] bg-transparent px-3 text-white hover:bg-white/[0.08] hover:text-white"
+                >
+                  {publishPending ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <Upload className="size-3.5" />
+                  )}
+                  {publishPending ? "Publishing" : "Publish"}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Publish workflow</TooltipContent>
+            </Tooltip>
+
+            {/* Run (primary) */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="shrink-0">
+                  <Button
+                    size="sm"
+                    onClick={running ? undefined : onRun}
+                    disabled={!canRun || running}
+                    className="h-8 gap-1.5 bg-white px-3.5 text-black hover:bg-white/90 disabled:bg-white/[0.08] disabled:text-white/25"
+                  >
+                    {running ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Play className="size-3.5 fill-current" />
+                    )}
+                    {running ? "Running" : "Run"}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                {canRun
+                  ? "Run the latest published version"
+                  : "Publish a version before running"}
+              </TooltipContent>
+            </Tooltip>
+          </div>
         </div>
       </header>
     </TooltipProvider>
   );
 }
 
+/* ================================================================
+   Workflow name field
+   ================================================================ */
+
 function NameField({
   name,
   pending,
   onRename,
-  className = "",
 }: {
   name: string;
   pending: boolean;
   onRename: (name: string) => void;
-  className?: string;
 }) {
   const [draft, setDraft] = React.useState(name);
   const [editing, setEditing] = React.useState(false);
@@ -214,26 +359,31 @@ function NameField({
   }
 
   return (
-    <Input
-      value={draft}
-      disabled={pending}
-      onFocus={() => setEditing(true)}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") e.currentTarget.blur();
-        if (e.key === "Escape") {
-          setDraft(name);
-          setEditing(false);
-          e.currentTarget.blur();
-        }
-      }}
-      aria-label="Workflow name"
-      className={cn(
-        "h-8 border-transparent bg-transparent px-2 text-sm font-semibold shadow-none hover:border-input focus-visible:border-input",
-        "truncate",
-        className,
-      )}
-    />
+    <div className="min-w-0 max-w-[220px] shrink lg:max-w-[280px] xl:max-w-[340px]">
+      <Input
+        value={draft}
+        disabled={pending}
+        onFocus={() => setEditing(true)}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") {
+            setDraft(name);
+            setEditing(false);
+            e.currentTarget.blur();
+          }
+        }}
+        aria-label="Workflow name"
+        className={cn(
+          "h-9 w-full min-w-0 truncate px-2",
+          "border-transparent bg-transparent shadow-none",
+          "text-[13px] font-semibold tracking-[-0.01em] text-white",
+          "hover:border-white/[0.07] hover:bg-white/[0.025]",
+          "focus:border-white/[0.12] focus:bg-white/[0.035]",
+          "focus-visible:ring-0 focus-visible:ring-offset-0",
+        )}
+      />
+    </div>
   );
 }

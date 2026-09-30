@@ -39,7 +39,7 @@ export function Logo({
       <LogoMark size={size} />
 
       <span className="text-xl font-semibold tracking-[-0.03em] text-foreground">
-        FlowOps
+        Trace.run
       </span>
     </span>
   );
