@@ -1,0 +1,238 @@
+{
+  "slug": "ai-driven-security-triage-agent",
+  "name": "AI-Driven Security Triage Agent",
+  "description": "Enrich security alerts, triage them with AI, gate containment, and create auditable incident/remediation records.",
+  "category": "AI Operations",
+  "icon": "ShieldAlert",
+  "tags": [
+    "ai",
+    "security",
+    "triage",
+    "incident-response"
+  ],
+  "providers": [
+    "ai",
+    "pagerduty",
+    "jira",
+    "slack"
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "trigger",
+        "type": "webhook_trigger",
+        "position": {
+          "x": 80,
+          "y": 220
+        },
+        "data": {
+          "label": "Security alert",
+          "config": {
+            "method": "POST"
+          }
+        }
+      },
+      {
+        "id": "dedupe",
+        "type": "idempotency_check",
+        "position": {
+          "x": 360,
+          "y": 220
+        },
+        "data": {
+          "label": "Deduplicate alert",
+          "config": {
+            "key": "{{trigger.body.alert_id}}"
+          }
+        }
+      },
+      {
+        "id": "enrich",
+        "type": "http_request",
+        "position": {
+          "x": 640,
+          "y": 220
+        },
+        "data": {
+          "label": "Threat intelligence enrichment",
+          "config": {
+            "method": "GET",
+            "url": "https://threat-intel.example/v1/lookup?indicator={{trigger.body.indicator}}"
+          }
+        }
+      },
+      {
+        "id": "triage",
+        "type": "ai_agent",
+        "position": {
+          "x": 920,
+          "y": 220
+        },
+        "data": {
+          "label": "Triage alert",
+          "config": {
+            "instructions": "Classify the security alert and return strict JSON with severity exactly CRITICAL, HIGH, MEDIUM, or LOW, plus confidence, evidence, and recommended action.",
+            "input": "Alert={{trigger.body}} Intel={{enrich.body}}"
+          }
+        }
+      },
+      {
+        "id": "critical",
+        "type": "router",
+        "position": {
+          "x": 1200,
+          "y": 220
+        },
+        "data": {
+          "label": "Severity classification",
+          "config": {
+            "input": "{{triage.output}}",
+            "routes": [
+              "(?s).*\"severity\"\\s*:\\s*\"CRITICAL\".*",
+              "(?s).*\"severity\"\\s*:\\s*\"(HIGH|MEDIUM|LOW)\".*"
+            ]
+          }
+        }
+      },
+      {
+        "id": "approval",
+        "type": "human_approval",
+        "position": {
+          "x": 1480,
+          "y": 80
+        },
+        "data": {
+          "label": "Approve containment",
+          "config": {
+            "prompt": "Review the AI triage and approve containment/remediation actions."
+          }
+        }
+      },
+      {
+        "id": "incident",
+        "type": "pagerduty_trigger_incident",
+        "position": {
+          "x": 1760,
+          "y": 80
+        },
+        "data": {
+          "label": "Escalate security incident",
+          "config": {
+            "serviceId": "{{PAGERDUTY_SECURITY_SERVICE_ID}}",
+            "title": "Critical security alert: {{trigger.body.alert_id}}"
+          }
+        }
+      },
+      {
+        "id": "issue",
+        "type": "jira",
+        "position": {
+          "x": 1760,
+          "y": 220
+        },
+        "data": {
+          "label": "Create remediation ticket",
+          "config": {
+            "siteUrl": "{{JIRA_SITE_URL}}",
+            "project": "SEC",
+            "issueType": "Bug",
+            "summary": "Security alert {{trigger.body.alert_id}}",
+            "description": "{{triage.output}}"
+          }
+        }
+      },
+      {
+        "id": "notify",
+        "type": "notification",
+        "position": {
+          "x": 2040,
+          "y": 360
+        },
+        "data": {
+          "label": "Security summary",
+          "config": {
+            "channel": "slack",
+            "message": "Security triage completed for {{trigger.body.alert_id}}.\n{{triage.output}}"
+          }
+        }
+      },
+      {
+        "id": "dlq",
+        "type": "dead_letter_queue",
+        "position": {
+          "x": 1480,
+          "y": 360
+        },
+        "data": {
+          "label": "Queue failed alert",
+          "config": {
+            "payloadPath": "{{trigger.body}}",
+            "reason": "Security triage failed"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-trigger-dedupe",
+        "source": "trigger",
+        "target": "dedupe",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-dedupe-enrich",
+        "source": "dedupe",
+        "target": "enrich",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-enrich-triage",
+        "source": "enrich",
+        "target": "triage",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-triage-critical",
+        "source": "triage",
+        "target": "critical",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-critical-approval-true",
+        "source": "critical",
+        "target": "approval",
+        "sourceHandle": "route1"
+      },
+      {
+        "id": "e-critical-notify-false",
+        "source": "critical",
+        "target": "notify",
+        "sourceHandle": "route2"
+      },
+      {
+        "id": "e-approval-incident-approved",
+        "source": "approval",
+        "target": "incident",
+        "sourceHandle": "approved"
+      },
+      {
+        "id": "e-approval-dlq-rejected",
+        "source": "approval",
+        "target": "dlq",
+        "sourceHandle": "rejected"
+      },
+      {
+        "id": "e-incident-issue",
+        "source": "incident",
+        "target": "issue",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-issue-notify",
+        "source": "issue",
+        "target": "notify",
+        "sourceHandle": null
+      }
+    ]
+  }
+}

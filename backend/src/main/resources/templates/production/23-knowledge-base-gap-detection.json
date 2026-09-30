@@ -1,0 +1,256 @@
+{
+  "slug": "knowledge-base-gap-detection",
+  "name": "Knowledge Base Gap Detection & Article Generation",
+  "description": "Audit support conversations against the knowledge base, prioritize gaps, and publish reviewed documentation.",
+  "category": "Customer Support",
+  "icon": "BookOpen",
+  "tags": [
+    "knowledge-base",
+    "content",
+    "support",
+    "ai"
+  ],
+  "providers": [
+    "jira",
+    "slack",
+    "ai"
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "trigger",
+        "type": "schedule_trigger",
+        "position": {
+          "x": 80,
+          "y": 220
+        },
+        "data": {
+          "label": "Weekly content audit",
+          "config": {
+            "cron": "0 7 * * MON",
+            "timezone": "UTC"
+          }
+        }
+      },
+      {
+        "id": "tickets",
+        "type": "database_query",
+        "position": {
+          "x": 360,
+          "y": 220
+        },
+        "data": {
+          "label": "Load recurring questions",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "SELECT * FROM support_tickets WHERE created_at >= NOW() - INTERVAL '30 days'"
+          }
+        }
+      },
+      {
+        "id": "articles",
+        "type": "http_request",
+        "position": {
+          "x": 640,
+          "y": 220
+        },
+        "data": {
+          "label": "Load KB articles",
+          "config": {
+            "method": "GET",
+            "url": "https://kb.example/v1/articles"
+          }
+        }
+      },
+      {
+        "id": "gaps",
+        "type": "ai_agent",
+        "position": {
+          "x": 920,
+          "y": 220
+        },
+        "data": {
+          "label": "Find article gaps",
+          "config": {
+            "instructions": "Identify knowledge gaps and return strict JSON with priority exactly HIGH or NORMAL, evidence, and recommended action.",
+            "input": "Tickets={{tickets.results}} Articles={{articles.body}}"
+          }
+        }
+      },
+      {
+        "id": "priority",
+        "type": "router",
+        "position": {
+          "x": 1200,
+          "y": 220
+        },
+        "data": {
+          "label": "Gap priority",
+          "config": {
+            "input": "{{gaps.output}}",
+            "routes": [
+              "(?s).*\"priority\"\\s*:\\s*\"HIGH\".*",
+              "(?s).*\"priority\"\\s*:\\s*\"NORMAL\".*"
+            ]
+          }
+        }
+      },
+      {
+        "id": "draft",
+        "type": "ai_content_generator",
+        "position": {
+          "x": 1480,
+          "y": 80
+        },
+        "data": {
+          "label": "Draft article",
+          "config": {
+            "input": "{{gaps.output}}",
+            "brief": "Create an evidence-backed article draft from the supplied gap. Mark uncertain claims instead of inventing details."
+          }
+        }
+      },
+      {
+        "id": "approval",
+        "type": "human_approval",
+        "position": {
+          "x": 1760,
+          "y": 80
+        },
+        "data": {
+          "label": "Approve KB article",
+          "config": {
+            "prompt": "Review the article for accuracy, product terminology, and support policy."
+          }
+        }
+      },
+      {
+        "id": "publish",
+        "type": "http_request",
+        "position": {
+          "x": 2040,
+          "y": 80
+        },
+        "data": {
+          "label": "Publish article",
+          "config": {
+            "method": "POST",
+            "url": "https://kb.example/v1/articles",
+            "body": "{{draft.output}}"
+          }
+        }
+      },
+      {
+        "id": "notify",
+        "type": "notification",
+        "position": {
+          "x": 2320,
+          "y": 80
+        },
+        "data": {
+          "label": "Notify support team",
+          "config": {
+            "channel": "slack",
+            "message": "Knowledge base article published for a high-priority support gap."
+          }
+        }
+      },
+      {
+        "id": "backlog",
+        "type": "jira",
+        "position": {
+          "x": 1480,
+          "y": 360
+        },
+        "data": {
+          "label": "Create content backlog item",
+          "config": {
+            "siteUrl": "{{JIRA_SITE_URL}}",
+            "project": "DOC",
+            "issueType": "Task",
+            "summary": "Knowledge base gap",
+            "description": "{{gaps.output}}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-trigger-tickets",
+        "source": "trigger",
+        "target": "tickets",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-trigger-articles",
+        "source": "trigger",
+        "target": "articles",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-tickets-gaps",
+        "source": "tickets",
+        "target": "gaps",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-articles-gaps",
+        "source": "articles",
+        "target": "gaps",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-gaps-priority",
+        "source": "gaps",
+        "target": "priority",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-priority-draft-true",
+        "source": "priority",
+        "target": "draft",
+        "sourceHandle": "route1"
+      },
+      {
+        "id": "e-priority-backlog-false",
+        "source": "priority",
+        "target": "backlog",
+        "sourceHandle": "route2"
+      },
+      {
+        "id": "e-draft-approval",
+        "source": "draft",
+        "target": "approval",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-approval-publish-approved",
+        "source": "approval",
+        "target": "publish",
+        "sourceHandle": "approved"
+      },
+      {
+        "id": "e-approval-backlog-rejected",
+        "source": "approval",
+        "target": "backlog",
+        "sourceHandle": "rejected"
+      },
+      {
+        "id": "e-publish-notify",
+        "source": "publish",
+        "target": "notify",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-backlog-notify",
+        "source": "backlog",
+        "target": "notify",
+        "sourceHandle": null
+      }
+    ]
+  }
+}

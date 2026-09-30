@@ -1,0 +1,212 @@
+{
+  "slug": "post-incident-review-action-tracker",
+  "name": "Post-Incident Review & Action Item Tracker",
+  "description": "Build evidence-backed incident reviews, turn findings into tracked actions, and require human approval before publication.",
+  "category": "Reliability/Incident Management",
+  "icon": "ClipboardCheck",
+  "tags": [
+    "postmortem",
+    "incident",
+    "root-cause",
+    "action-items"
+  ],
+  "providers": [
+    "jira",
+    "database",
+    "slack"
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "trigger",
+        "type": "webhook_trigger",
+        "position": {
+          "x": 80,
+          "y": 220
+        },
+        "data": {
+          "label": "Incident resolved",
+          "config": {
+            "method": "POST"
+          }
+        }
+      },
+      {
+        "id": "fetch",
+        "type": "http_request",
+        "position": {
+          "x": 360,
+          "y": 220
+        },
+        "data": {
+          "label": "Fetch incident evidence",
+          "config": {
+            "method": "GET",
+            "url": "https://incidents.example/v1/incidents/{{trigger.body.incident_id}}/evidence"
+          }
+        }
+      },
+      {
+        "id": "analyze",
+        "type": "ai_root_cause_analyzer",
+        "position": {
+          "x": 640,
+          "y": 220
+        },
+        "data": {
+          "label": "Generate incident analysis",
+          "config": {
+            "input": "{{fetch.body}}",
+            "instructions": "Summarize timeline, contributing factors, root cause hypotheses, and evidence gaps. Separate facts from hypotheses."
+          }
+        }
+      },
+      {
+        "id": "actions",
+        "type": "ai_agent",
+        "position": {
+          "x": 920,
+          "y": 220
+        },
+        "data": {
+          "label": "Draft action items",
+          "config": {
+            "instructions": "Turn the analysis into specific corrective and preventive action items with owners, priority, and due dates.",
+            "input": "{{analyze.output}}"
+          }
+        }
+      },
+      {
+        "id": "review",
+        "type": "human_approval",
+        "position": {
+          "x": 1200,
+          "y": 220
+        },
+        "data": {
+          "label": "Review post-incident actions",
+          "config": {
+            "prompt": "Review the proposed post-incident report and action items before publishing."
+          }
+        }
+      },
+      {
+        "id": "store",
+        "type": "database_insert",
+        "position": {
+          "x": 1480,
+          "y": 80
+        },
+        "data": {
+          "label": "Store review",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "INSERT INTO post_incident_reviews (incident_id, analysis, actions, created_at) VALUES ('{{trigger.body.incident_id}}', '{{analyze.output}}', '{{actions.output}}', NOW())"
+          }
+        }
+      },
+      {
+        "id": "issue",
+        "type": "jira",
+        "position": {
+          "x": 1480,
+          "y": 360
+        },
+        "data": {
+          "label": "Create corrective actions",
+          "config": {
+            "siteUrl": "{{JIRA_SITE_URL}}",
+            "project": "SRE",
+            "issueType": "Task",
+            "summary": "Post-incident actions for {{trigger.body.incident_id}}",
+            "description": "{{actions.output}}"
+          }
+        }
+      },
+      {
+        "id": "notify",
+        "type": "notification",
+        "position": {
+          "x": 1760,
+          "y": 220
+        },
+        "data": {
+          "label": "Publish review summary",
+          "config": {
+            "channel": "slack",
+            "message": "Post-incident review completed for {{trigger.body.incident_id}}."
+          }
+        }
+      },
+      {
+        "id": "dlq",
+        "type": "dead_letter_queue",
+        "position": {
+          "x": 1480,
+          "y": 500
+        },
+        "data": {
+          "label": "Queue rejected review",
+          "config": {
+            "payloadPath": "{{trigger.body}}",
+            "reason": "Post-incident review requires rework"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-trigger-fetch",
+        "source": "trigger",
+        "target": "fetch",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-fetch-analyze",
+        "source": "fetch",
+        "target": "analyze",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-analyze-actions",
+        "source": "analyze",
+        "target": "actions",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-actions-review",
+        "source": "actions",
+        "target": "review",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-review-store-approved",
+        "source": "review",
+        "target": "store",
+        "sourceHandle": "approved"
+      },
+      {
+        "id": "e-review-dlq-rejected",
+        "source": "review",
+        "target": "dlq",
+        "sourceHandle": "rejected"
+      },
+      {
+        "id": "e-store-issue",
+        "source": "store",
+        "target": "issue",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-issue-notify",
+        "source": "issue",
+        "target": "notify",
+        "sourceHandle": null
+      }
+    ]
+  }
+}

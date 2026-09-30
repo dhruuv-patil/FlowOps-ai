@@ -1,0 +1,232 @@
+{
+  "slug": "inbound-lead-enrichment-scoring-routing",
+  "name": "Inbound Lead Enrichment, Scoring & Routing",
+  "description": "Enrich inbound leads, score them with confidence, route by segment, and preserve duplicate events safely.",
+  "category": "RevOps/Sales",
+  "icon": "UserRoundCheck",
+  "tags": [
+    "lead-enrichment",
+    "scoring",
+    "routing",
+    "deduplication"
+  ],
+  "providers": [
+    "hubspot",
+    "ai",
+    "database",
+    "slack"
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "trigger",
+        "type": "webhook_trigger",
+        "position": {
+          "x": 80,
+          "y": 220
+        },
+        "data": {
+          "label": "Inbound lead",
+          "config": {
+            "method": "POST"
+          }
+        }
+      },
+      {
+        "id": "dedupe",
+        "type": "deduplicate",
+        "position": {
+          "x": 360,
+          "y": 220
+        },
+        "data": {
+          "label": "Deduplicate lead",
+          "config": {
+            "key": "{{trigger.body.email}}"
+          }
+        }
+      },
+      {
+        "id": "enrich",
+        "type": "http_request",
+        "position": {
+          "x": 640,
+          "y": 220
+        },
+        "data": {
+          "label": "Enrich account",
+          "config": {
+            "method": "GET",
+            "url": "https://enrichment.example/v1/company?domain={{trigger.body.domain}}"
+          }
+        }
+      },
+      {
+        "id": "score",
+        "type": "ai_agent",
+        "position": {
+          "x": 920,
+          "y": 220
+        },
+        "data": {
+          "label": "Score and segment",
+          "config": {
+            "instructions": "Score fit and intent, then assign a segment and recommended owner. Return confidence.",
+            "input": "Lead={{trigger.body}} Enrichment={{enrich.body}}"
+          }
+        }
+      },
+      {
+        "id": "route",
+        "type": "switch",
+        "position": {
+          "x": 1200,
+          "y": 220
+        },
+        "data": {
+          "label": "Route segment",
+          "config": {
+            "field": "{{score.output.segment}}",
+            "cases": [
+              "enterprise",
+              "mid-market",
+              "smb"
+            ]
+          }
+        }
+      },
+      {
+        "id": "enterprise",
+        "type": "notification",
+        "position": {
+          "x": 1480,
+          "y": 80
+        },
+        "data": {
+          "label": "Route enterprise",
+          "config": {
+            "channel": "slack",
+            "message": "Enterprise lead routed to strategic sales: {{trigger.body.email}}"
+          }
+        }
+      },
+      {
+        "id": "mid",
+        "type": "notification",
+        "position": {
+          "x": 1480,
+          "y": 220
+        },
+        "data": {
+          "label": "Route mid-market",
+          "config": {
+            "channel": "slack",
+            "message": "Mid-market lead routed to sales: {{trigger.body.email}}"
+          }
+        }
+      },
+      {
+        "id": "smb",
+        "type": "database_insert",
+        "position": {
+          "x": 1480,
+          "y": 360
+        },
+        "data": {
+          "label": "Store SMB nurture",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "INSERT INTO nurture_leads (email, segment, created_at) VALUES ('{{trigger.body.email}}','smb',NOW())"
+          }
+        }
+      },
+      {
+        "id": "notify",
+        "type": "notification",
+        "position": {
+          "x": 1760,
+          "y": 500
+        },
+        "data": {
+          "label": "Record routing",
+          "config": {
+            "channel": "slack",
+            "message": "Lead routing completed: {{score.output}}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-trigger-dedupe",
+        "source": "trigger",
+        "target": "dedupe",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-dedupe-enrich-passed",
+        "source": "dedupe",
+        "target": "enrich",
+        "sourceHandle": "passed"
+      },
+      {
+        "id": "e-dedupe-notify-duplicate",
+        "source": "dedupe",
+        "target": "notify",
+        "sourceHandle": "duplicate"
+      },
+      {
+        "id": "e-enrich-score",
+        "source": "enrich",
+        "target": "score",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-score-route",
+        "source": "score",
+        "target": "route",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-route-enterprise-case1",
+        "source": "route",
+        "target": "enterprise",
+        "sourceHandle": "case1"
+      },
+      {
+        "id": "e-route-mid-case2",
+        "source": "route",
+        "target": "mid",
+        "sourceHandle": "case2"
+      },
+      {
+        "id": "e-route-smb-case3",
+        "source": "route",
+        "target": "smb",
+        "sourceHandle": "case3"
+      },
+      {
+        "id": "e-enterprise-notify",
+        "source": "enterprise",
+        "target": "notify",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-mid-notify",
+        "source": "mid",
+        "target": "notify",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-smb-notify",
+        "source": "smb",
+        "target": "notify",
+        "sourceHandle": null
+      }
+    ]
+  }
+}

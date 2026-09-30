@@ -1,0 +1,255 @@
+{
+  "slug": "knowledge-base-gap-detection-article-generation",
+  "name": "Knowledge Base Gap Detection & Article Generation",
+  "description": "Detect recurring support questions without adequate documentation, draft evidence-backed articles, and gate publication through human review.",
+  "category": "Reliability/Incident Management",
+  "icon": "BookOpenCheck",
+  "tags": [
+    "knowledge-base",
+    "support",
+    "ai",
+    "content-governance"
+  ],
+  "providers": [
+    "database",
+    "ai",
+    "slack"
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "trigger",
+        "type": "schedule_trigger",
+        "position": {
+          "x": 80,
+          "y": 220
+        },
+        "data": {
+          "label": "Knowledge audit",
+          "config": {
+            "cron": "0 6 * * MON",
+            "timezone": "UTC"
+          }
+        }
+      },
+      {
+        "id": "tickets",
+        "type": "database_query",
+        "position": {
+          "x": 360,
+          "y": 220
+        },
+        "data": {
+          "label": "Load recent tickets",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "SELECT * FROM support_tickets WHERE created_at >= NOW() - INTERVAL '7 days'"
+          }
+        }
+      },
+      {
+        "id": "kb",
+        "type": "http_request",
+        "position": {
+          "x": 640,
+          "y": 220
+        },
+        "data": {
+          "label": "Load knowledge base",
+          "config": {
+            "method": "GET",
+            "url": "https://kb.example/v1/articles"
+          }
+        }
+      },
+      {
+        "id": "gaps",
+        "type": "ai_agent",
+        "position": {
+          "x": 920,
+          "y": 220
+        },
+        "data": {
+          "label": "Detect knowledge gaps",
+          "config": {
+            "instructions": "Identify knowledge gaps and return strict JSON with priority HIGH or NORMAL, confidence, evidence, and recommended topic.",
+            "input": "Tickets={{tickets.results}} KB={{kb.body}}"
+          }
+        }
+      },
+      {
+        "id": "gate",
+        "type": "router",
+        "position": {
+          "x": 1200,
+          "y": 220
+        },
+        "data": {
+          "label": "Gap priority",
+          "config": {
+            "input": "{{gaps.output}}",
+            "routes": [
+              "(?s).*\"priority\"\\s*:\\s*\"HIGH\".*",
+              "(?s).*\"priority\"\\s*:\\s*\"NORMAL\".*"
+            ]
+          }
+        }
+      },
+      {
+        "id": "draft",
+        "type": "ai_content_generator",
+        "position": {
+          "x": 1480,
+          "y": 80
+        },
+        "data": {
+          "label": "Draft article",
+          "config": {
+            "input": "{{gaps.output}}",
+            "brief": "Draft a support knowledge article for the identified gap. Do not invent product behavior; cite the supplied ticket evidence."
+          }
+        }
+      },
+      {
+        "id": "approval",
+        "type": "human_approval",
+        "position": {
+          "x": 1760,
+          "y": 80
+        },
+        "data": {
+          "label": "Approve article",
+          "config": {
+            "prompt": "Review the AI-generated knowledge article for factual accuracy before publishing."
+          }
+        }
+      },
+      {
+        "id": "publish",
+        "type": "http_request",
+        "position": {
+          "x": 2040,
+          "y": 80
+        },
+        "data": {
+          "label": "Publish article",
+          "config": {
+            "method": "POST",
+            "url": "https://kb.example/v1/articles",
+            "body": "{{draft.output}}"
+          }
+        }
+      },
+      {
+        "id": "notify",
+        "type": "notification",
+        "position": {
+          "x": 2320,
+          "y": 80
+        },
+        "data": {
+          "label": "Notify support",
+          "config": {
+            "channel": "slack",
+            "message": "Knowledge base update published from gap detection."
+          }
+        }
+      },
+      {
+        "id": "incident",
+        "type": "incident_creator",
+        "position": {
+          "x": 1480,
+          "y": 360
+        },
+        "data": {
+          "label": "Create content quality task",
+          "config": {
+            "title": "Knowledge gap requires review",
+            "severity": "LOW",
+            "body": "{{gaps.output}}",
+            "channel": "slack"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-trigger-tickets",
+        "source": "trigger",
+        "target": "tickets",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-trigger-kb",
+        "source": "trigger",
+        "target": "kb",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-tickets-gaps",
+        "source": "tickets",
+        "target": "gaps",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-kb-gaps",
+        "source": "kb",
+        "target": "gaps",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-gaps-gate",
+        "source": "gaps",
+        "target": "gate",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-gate-draft-true",
+        "source": "gate",
+        "target": "draft",
+        "sourceHandle": "route1"
+      },
+      {
+        "id": "e-gate-incident-false",
+        "source": "gate",
+        "target": "incident",
+        "sourceHandle": "route2"
+      },
+      {
+        "id": "e-draft-approval",
+        "source": "draft",
+        "target": "approval",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-approval-publish-approved",
+        "source": "approval",
+        "target": "publish",
+        "sourceHandle": "approved"
+      },
+      {
+        "id": "e-approval-incident-rejected",
+        "source": "approval",
+        "target": "incident",
+        "sourceHandle": "rejected"
+      },
+      {
+        "id": "e-publish-notify",
+        "source": "publish",
+        "target": "notify",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-incident-notify",
+        "source": "incident",
+        "target": "notify",
+        "sourceHandle": null
+      }
+    ]
+  }
+}

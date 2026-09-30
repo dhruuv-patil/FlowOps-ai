@@ -1,0 +1,203 @@
+{
+  "slug": "sla-breach-detection-escalation",
+  "name": "SLA Breach Detection & Escalation",
+  "description": "Continuously evaluate open support tickets against SLA budgets, escalate breaches, and preserve an audit trail.",
+  "category": "Customer Support",
+  "icon": "AlarmClock",
+  "tags": [
+    "sla",
+    "support",
+    "escalation",
+    "on-call"
+  ],
+  "providers": [
+    "pagerduty",
+    "slack",
+    "database"
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "trigger",
+        "type": "schedule_trigger",
+        "position": {
+          "x": 80,
+          "y": 220
+        },
+        "data": {
+          "label": "SLA scan",
+          "config": {
+            "cron": "*/5 * * * *",
+            "timezone": "UTC"
+          }
+        }
+      },
+      {
+        "id": "tickets",
+        "type": "database_query",
+        "position": {
+          "x": 360,
+          "y": 220
+        },
+        "data": {
+          "label": "Load open tickets",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "SELECT * FROM support_tickets WHERE status NOT IN ('closed','resolved')"
+          }
+        }
+      },
+      {
+        "id": "sla",
+        "type": "sla_monitor",
+        "position": {
+          "x": 640,
+          "y": 220
+        },
+        "data": {
+          "label": "Evaluate SLA",
+          "config": {
+            "successRatePath": "tickets.results.slaCompliance",
+            "latencyPath": "tickets.results.ageMs",
+            "minSuccessRate": 0.95,
+            "maxLatencyMs": 14400000
+          }
+        }
+      },
+      {
+        "id": "gate",
+        "type": "condition",
+        "position": {
+          "x": 920,
+          "y": 220
+        },
+        "data": {
+          "label": "SLA breach detected?",
+          "config": {
+            "expression": "{{sla.output.breached}} == true"
+          }
+        }
+      },
+      {
+        "id": "escalate",
+        "type": "escalation",
+        "position": {
+          "x": 1200,
+          "y": 80
+        },
+        "data": {
+          "label": "Escalate support breach",
+          "config": {
+            "title": "Support SLA breach",
+            "body": "{{tickets.results}}",
+            "level": 1,
+            "channel": "slack"
+          }
+        }
+      },
+      {
+        "id": "page",
+        "type": "pagerduty_trigger_incident",
+        "position": {
+          "x": 1480,
+          "y": 80
+        },
+        "data": {
+          "label": "Page support on-call",
+          "config": {
+            "serviceId": "{{PAGERDUTY_SUPPORT_SERVICE_ID}}",
+            "title": "Support SLA breach"
+          }
+        }
+      },
+      {
+        "id": "notify",
+        "type": "notification",
+        "position": {
+          "x": 1200,
+          "y": 360
+        },
+        "data": {
+          "label": "Record healthy SLA",
+          "config": {
+            "channel": "slack",
+            "message": "SLA scan completed with no breach."
+          }
+        }
+      },
+      {
+        "id": "audit",
+        "type": "database_insert",
+        "position": {
+          "x": 1760,
+          "y": 220
+        },
+        "data": {
+          "label": "Store SLA event",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "INSERT INTO sla_events (captured_at, breached, payload) VALUES (NOW(), {{sla.output.breached}}, '{{tickets.results}}')"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-trigger-tickets",
+        "source": "trigger",
+        "target": "tickets",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-tickets-sla",
+        "source": "tickets",
+        "target": "sla",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-sla-gate",
+        "source": "sla",
+        "target": "gate",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-gate-escalate-true",
+        "source": "gate",
+        "target": "escalate",
+        "sourceHandle": "true"
+      },
+      {
+        "id": "e-gate-notify-false",
+        "source": "gate",
+        "target": "notify",
+        "sourceHandle": "false"
+      },
+      {
+        "id": "e-escalate-page",
+        "source": "escalate",
+        "target": "page",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-page-audit",
+        "source": "page",
+        "target": "audit",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-notify-audit",
+        "source": "notify",
+        "target": "audit",
+        "sourceHandle": null
+      }
+    ]
+  }
+}

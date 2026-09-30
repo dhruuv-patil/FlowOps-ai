@@ -16,7 +16,7 @@ public class PagerDutyTriggerIncidentExecutor implements NodeExecutor {
         this.client = client;
     }
 
-    @Override public String type() { return "pagerduty:triggerIncident"; }
+    @Override public String type() { return "pagerduty_trigger_incident"; }
 
     @Override
     public NodeResult execute(NodeExecutionContext ctx) {

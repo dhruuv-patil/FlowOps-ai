@@ -1,0 +1,271 @@
+{
+  "slug": "chaos-experiment-orchestrator",
+  "name": "Chaos Experiment Orchestrator with Blast Radius Control",
+  "description": "Run controlled chaos experiments with pre-flight safety checks, approval, bounded observation, and automated escalation when blast-radius limits are exceeded.",
+  "category": "Reliability/Incident Management",
+  "icon": "Bomb",
+  "tags": [
+    "chaos",
+    "blast-radius",
+    "approval",
+    "incident-response"
+  ],
+  "providers": [
+    "pagerduty",
+    "slack"
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "trigger",
+        "type": "manual_trigger",
+        "position": {
+          "x": 80,
+          "y": 220
+        },
+        "data": {
+          "label": "Start chaos experiment",
+          "config": {}
+        }
+      },
+      {
+        "id": "scope",
+        "type": "ai_decision",
+        "position": {
+          "x": 360,
+          "y": 220
+        },
+        "data": {
+          "label": "Validate blast radius",
+          "config": {
+            "question": "Is this chaos experiment safe within the configured blast-radius limits?",
+            "input": "{{EXPERIMENT_SPEC}}"
+          }
+        }
+      },
+      {
+        "id": "gate",
+        "type": "router",
+        "position": {
+          "x": 640,
+          "y": 220
+        },
+        "data": {
+          "label": "Safety decision",
+          "config": {
+            "input": "{{scope.output}}",
+            "routes": [
+              "(?s).*\"decision\"\\s*:\\s*true.*",
+              "(?s).*\"decision\"\\s*:\\s*false.*"
+            ]
+          }
+        }
+      },
+      {
+        "id": "approval",
+        "type": "human_approval",
+        "position": {
+          "x": 920,
+          "y": 80
+        },
+        "data": {
+          "label": "Approve experiment",
+          "config": {
+            "prompt": "Review blast radius, rollback plan, and maintenance window."
+          }
+        }
+      },
+      {
+        "id": "start",
+        "type": "http_request",
+        "position": {
+          "x": 1200,
+          "y": 80
+        },
+        "data": {
+          "label": "Start experiment",
+          "config": {
+            "method": "POST",
+            "url": "https://chaos.example/v1/experiments/start",
+            "body": "{{EXPERIMENT_SPEC}}"
+          }
+        }
+      },
+      {
+        "id": "wait",
+        "type": "delay",
+        "position": {
+          "x": 1480,
+          "y": 80
+        },
+        "data": {
+          "label": "Observe experiment",
+          "config": {
+            "seconds": 300
+          }
+        }
+      },
+      {
+        "id": "health",
+        "type": "http_request",
+        "position": {
+          "x": 1760,
+          "y": 80
+        },
+        "data": {
+          "label": "Check service health",
+          "config": {
+            "method": "GET",
+            "url": "https://observability.example/v1/health?service={{TARGET_SERVICE}}"
+          }
+        }
+      },
+      {
+        "id": "safe",
+        "type": "health_check",
+        "position": {
+          "x": 2040,
+          "y": 80
+        },
+        "data": {
+          "label": "Evaluate blast radius",
+          "config": {
+            "checks": [
+              {
+                "path": "health.body.errorRate",
+                "op": "<",
+                "value": 0.05
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "stop",
+        "type": "http_request",
+        "position": {
+          "x": 2040,
+          "y": 360
+        },
+        "data": {
+          "label": "Stop experiment",
+          "config": {
+            "method": "POST",
+            "url": "https://chaos.example/v1/experiments/stop",
+            "body": "{\"experiment_id\":\"{{start.body.id}}\"}"
+          }
+        }
+      },
+      {
+        "id": "incident",
+        "type": "pagerduty_trigger_incident",
+        "position": {
+          "x": 2320,
+          "y": 360
+        },
+        "data": {
+          "label": "Page on-call",
+          "config": {
+            "serviceId": "{{PAGERDUTY_CHAOS_SERVICE_ID}}",
+            "title": "Chaos experiment exceeded blast-radius budget"
+          }
+        }
+      },
+      {
+        "id": "notify",
+        "type": "notification",
+        "position": {
+          "x": 2600,
+          "y": 220
+        },
+        "data": {
+          "label": "Experiment result",
+          "config": {
+            "channel": "slack",
+            "message": "Chaos experiment {{start.body.id}} completed. Health={{health.body}}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-trigger-scope",
+        "source": "trigger",
+        "target": "scope",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-scope-gate",
+        "source": "scope",
+        "target": "gate",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-gate-approval-true",
+        "source": "gate",
+        "target": "approval",
+        "sourceHandle": "route1"
+      },
+      {
+        "id": "e-gate-notify-false",
+        "source": "gate",
+        "target": "notify",
+        "sourceHandle": "route2"
+      },
+      {
+        "id": "e-approval-start-approved",
+        "source": "approval",
+        "target": "start",
+        "sourceHandle": "approved"
+      },
+      {
+        "id": "e-approval-notify-rejected",
+        "source": "approval",
+        "target": "notify",
+        "sourceHandle": "rejected"
+      },
+      {
+        "id": "e-start-wait",
+        "source": "start",
+        "target": "wait",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-wait-health",
+        "source": "wait",
+        "target": "health",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-health-safe",
+        "source": "health",
+        "target": "safe",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-safe-notify-healthy",
+        "source": "safe",
+        "target": "notify",
+        "sourceHandle": "healthy"
+      },
+      {
+        "id": "e-safe-stop-unhealthy",
+        "source": "safe",
+        "target": "stop",
+        "sourceHandle": "unhealthy"
+      },
+      {
+        "id": "e-stop-incident",
+        "source": "stop",
+        "target": "incident",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-incident-notify",
+        "source": "incident",
+        "target": "notify",
+        "sourceHandle": null
+      }
+    ]
+  }
+}

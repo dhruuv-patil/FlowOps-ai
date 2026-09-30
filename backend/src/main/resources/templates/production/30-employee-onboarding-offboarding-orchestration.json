@@ -1,0 +1,226 @@
+{
+  "slug": "employee-onboarding-offboarding-orchestration",
+  "name": "Employee Onboarding/Offboarding Orchestration",
+  "description": "Coordinate employee lifecycle events with idempotency, approval for sensitive access, status updates, and incident escalation.",
+  "category": "Business Operations",
+  "icon": "UserRoundCog",
+  "tags": [
+    "onboarding",
+    "offboarding",
+    "iam",
+    "approval"
+  ],
+  "providers": [
+    "database",
+    "slack"
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "trigger",
+        "type": "webhook_trigger",
+        "position": {
+          "x": 80,
+          "y": 220
+        },
+        "data": {
+          "label": "Employee lifecycle event",
+          "config": {
+            "method": "POST"
+          }
+        }
+      },
+      {
+        "id": "dedupe",
+        "type": "idempotency_check",
+        "position": {
+          "x": 360,
+          "y": 220
+        },
+        "data": {
+          "label": "Deduplicate employee event",
+          "config": {
+            "key": "{{trigger.body.employeeId}}:{{trigger.body.eventType}}:{{trigger.body.eventId}}"
+          }
+        }
+      },
+      {
+        "id": "route",
+        "type": "switch",
+        "position": {
+          "x": 640,
+          "y": 220
+        },
+        "data": {
+          "label": "Route lifecycle event",
+          "config": {
+            "field": "{{trigger.body.eventType}}",
+            "cases": [
+              "onboarding",
+              "offboarding"
+            ]
+          }
+        }
+      },
+      {
+        "id": "provision",
+        "type": "http_request",
+        "position": {
+          "x": 920,
+          "y": 80
+        },
+        "data": {
+          "label": "Provision access",
+          "config": {
+            "method": "POST",
+            "url": "https://iam.example/v1/provision",
+            "body": "{\"employeeId\":\"{{trigger.body.employeeId}}\"}"
+          }
+        }
+      },
+      {
+        "id": "revoke",
+        "type": "http_request",
+        "position": {
+          "x": 920,
+          "y": 360
+        },
+        "data": {
+          "label": "Revoke access",
+          "config": {
+            "method": "POST",
+            "url": "https://iam.example/v1/revoke",
+            "body": "{\"employeeId\":\"{{trigger.body.employeeId}}\"}"
+          }
+        }
+      },
+      {
+        "id": "approval",
+        "type": "human_approval",
+        "position": {
+          "x": 1200,
+          "y": 80
+        },
+        "data": {
+          "label": "Approve sensitive access",
+          "config": {
+            "prompt": "Review role and requested access for the employee before provisioning."
+          }
+        }
+      },
+      {
+        "id": "record",
+        "type": "database_update",
+        "position": {
+          "x": 1480,
+          "y": 220
+        },
+        "data": {
+          "label": "Update HR status",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "UPDATE employees SET lifecycle_status='{{trigger.body.eventType}}', updated_at=NOW() WHERE employee_id='{{trigger.body.employeeId}}'"
+          }
+        }
+      },
+      {
+        "id": "notify",
+        "type": "notification",
+        "position": {
+          "x": 1760,
+          "y": 220
+        },
+        "data": {
+          "label": "Notify HR/IT",
+          "config": {
+            "channel": "slack",
+            "message": "Employee {{trigger.body.employeeId}} lifecycle event {{trigger.body.eventType}} completed."
+          }
+        }
+      },
+      {
+        "id": "incident",
+        "type": "incident_creator",
+        "position": {
+          "x": 1480,
+          "y": 500
+        },
+        "data": {
+          "label": "Create lifecycle incident",
+          "config": {
+            "title": "Employee lifecycle automation failed",
+            "severity": "HIGH",
+            "body": "{{trigger.body}}",
+            "channel": "slack"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-trigger-dedupe",
+        "source": "trigger",
+        "target": "dedupe",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-dedupe-route",
+        "source": "dedupe",
+        "target": "route",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-route-provision-case1",
+        "source": "route",
+        "target": "provision",
+        "sourceHandle": "case1"
+      },
+      {
+        "id": "e-route-revoke-case2",
+        "source": "route",
+        "target": "revoke",
+        "sourceHandle": "case2"
+      },
+      {
+        "id": "e-provision-approval",
+        "source": "provision",
+        "target": "approval",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-approval-record-approved",
+        "source": "approval",
+        "target": "record",
+        "sourceHandle": "approved"
+      },
+      {
+        "id": "e-approval-incident-rejected",
+        "source": "approval",
+        "target": "incident",
+        "sourceHandle": "rejected"
+      },
+      {
+        "id": "e-revoke-record",
+        "source": "revoke",
+        "target": "record",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-record-notify",
+        "source": "record",
+        "target": "notify",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-incident-notify",
+        "source": "incident",
+        "target": "notify",
+        "sourceHandle": null
+      }
+    ]
+  }
+}

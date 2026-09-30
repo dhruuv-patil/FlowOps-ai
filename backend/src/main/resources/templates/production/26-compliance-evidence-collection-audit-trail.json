@@ -1,0 +1,239 @@
+{
+  "slug": "compliance-evidence-collection-audit-trail",
+  "name": "Compliance Evidence Collection & Audit Trail",
+  "description": "Collect evidence across control sources, validate completeness, archive evidence, and create tasks for gaps.",
+  "category": "Security/Access",
+  "icon": "FileCheck2",
+  "tags": [
+    "compliance",
+    "evidence",
+    "audit",
+    "governance"
+  ],
+  "providers": [
+    "s3",
+    "jira",
+    "database",
+    "slack"
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "trigger",
+        "type": "schedule_trigger",
+        "position": {
+          "x": 80,
+          "y": 220
+        },
+        "data": {
+          "label": "Evidence collection",
+          "config": {
+            "cron": "0 3 * * *",
+            "timezone": "UTC"
+          }
+        }
+      },
+      {
+        "id": "controls",
+        "type": "database_query",
+        "position": {
+          "x": 360,
+          "y": 220
+        },
+        "data": {
+          "label": "Load control requirements",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "SELECT * FROM compliance_controls WHERE active=true"
+          }
+        }
+      },
+      {
+        "id": "evidence",
+        "type": "http_batch",
+        "position": {
+          "x": 640,
+          "y": 220
+        },
+        "data": {
+          "label": "Collect evidence sources",
+          "config": {
+            "items": [
+              "https://audit.example/v1/access",
+              "https://audit.example/v1/deployments",
+              "https://audit.example/v1/backups"
+            ],
+            "method": "GET"
+          }
+        }
+      },
+      {
+        "id": "validate",
+        "type": "ai_data_validator",
+        "position": {
+          "x": 920,
+          "y": 220
+        },
+        "data": {
+          "label": "Validate evidence",
+          "config": {
+            "input": "{{evidence.results}}",
+            "rules": [
+              "Every evidence item must identify a control.",
+              "Every active control must have current evidence.",
+              "Evidence must include a source and capture timestamp."
+            ]
+          }
+        }
+      },
+      {
+        "id": "gap",
+        "type": "condition",
+        "position": {
+          "x": 1200,
+          "y": 220
+        },
+        "data": {
+          "label": "Evidence gap?",
+          "config": {
+            "expression": "{{validate.output.valid}} == false"
+          }
+        }
+      },
+      {
+        "id": "task",
+        "type": "jira",
+        "position": {
+          "x": 1480,
+          "y": 80
+        },
+        "data": {
+          "label": "Create compliance task",
+          "config": {
+            "siteUrl": "{{JIRA_SITE_URL}}",
+            "project": "GRC",
+            "issueType": "Task",
+            "summary": "Compliance evidence gap",
+            "description": "{{validate.output}}"
+          }
+        }
+      },
+      {
+        "id": "archive",
+        "type": "s3_upload",
+        "position": {
+          "x": 1480,
+          "y": 360
+        },
+        "data": {
+          "label": "Archive evidence",
+          "config": {
+            "bucket": "{{COMPLIANCE_BUCKET}}",
+            "key": "evidence/{{trigger.timestamp}}.json",
+            "content": "{{validate.output}}"
+          }
+        }
+      },
+      {
+        "id": "audit",
+        "type": "database_insert",
+        "position": {
+          "x": 1760,
+          "y": 360
+        },
+        "data": {
+          "label": "Store evidence index",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "INSERT INTO compliance_evidence (captured_at, payload) VALUES (NOW(), '{{validate.output}}')"
+          }
+        }
+      },
+      {
+        "id": "notify",
+        "type": "notification",
+        "position": {
+          "x": 2040,
+          "y": 220
+        },
+        "data": {
+          "label": "Compliance summary",
+          "config": {
+            "channel": "slack",
+            "message": "Compliance evidence collection completed. Gaps={{validate.output.gaps}}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-trigger-controls",
+        "source": "trigger",
+        "target": "controls",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-trigger-evidence",
+        "source": "trigger",
+        "target": "evidence",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-controls-validate",
+        "source": "controls",
+        "target": "validate",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-evidence-validate",
+        "source": "evidence",
+        "target": "validate",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-validate-gap",
+        "source": "validate",
+        "target": "gap",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-gap-task-true",
+        "source": "gap",
+        "target": "task",
+        "sourceHandle": "true"
+      },
+      {
+        "id": "e-gap-archive-false",
+        "source": "gap",
+        "target": "archive",
+        "sourceHandle": "false"
+      },
+      {
+        "id": "e-task-audit",
+        "source": "task",
+        "target": "audit",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-archive-audit",
+        "source": "archive",
+        "target": "audit",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-audit-notify",
+        "source": "audit",
+        "target": "notify",
+        "sourceHandle": null
+      }
+    ]
+  }
+}

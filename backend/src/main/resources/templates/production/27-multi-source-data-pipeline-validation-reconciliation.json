@@ -1,0 +1,251 @@
+{
+  "slug": "multi-source-data-pipeline-validation-reconciliation",
+  "name": "Multi-Source Data Pipeline with Validation & Reconciliation",
+  "description": "Extract from multiple sources, validate and reconcile records, load canonical data, and preserve data-quality evidence.",
+  "category": "Data/Document Operations",
+  "icon": "Workflow",
+  "tags": [
+    "etl",
+    "data-quality",
+    "reconciliation",
+    "validation"
+  ],
+  "providers": [
+    "database",
+    "slack"
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "trigger",
+        "type": "schedule_trigger",
+        "position": {
+          "x": 80,
+          "y": 220
+        },
+        "data": {
+          "label": "Pipeline run",
+          "config": {
+            "cron": "0 */6 * * *",
+            "timezone": "UTC"
+          }
+        }
+      },
+      {
+        "id": "source_a",
+        "type": "http_request",
+        "position": {
+          "x": 360,
+          "y": 80
+        },
+        "data": {
+          "label": "Extract source A",
+          "config": {
+            "method": "GET",
+            "url": "https://source-a.example/v1/data"
+          }
+        }
+      },
+      {
+        "id": "source_b",
+        "type": "http_request",
+        "position": {
+          "x": 360,
+          "y": 360
+        },
+        "data": {
+          "label": "Extract source B",
+          "config": {
+            "method": "GET",
+            "url": "https://source-b.example/v1/data"
+          }
+        }
+      },
+      {
+        "id": "merge",
+        "type": "merge",
+        "position": {
+          "x": 640,
+          "y": 220
+        },
+        "data": {
+          "label": "Merge source payloads",
+          "config": {
+            "sources": [
+              "source_a.body",
+              "source_b.body"
+            ],
+            "mode": "array"
+          }
+        }
+      },
+      {
+        "id": "validate",
+        "type": "ai_data_validator",
+        "position": {
+          "x": 920,
+          "y": 220
+        },
+        "data": {
+          "label": "Validate records",
+          "config": {
+            "input": "{{merge.output}}",
+            "rules": "{\"type\":\"array\"}"
+          }
+        }
+      },
+      {
+        "id": "filter",
+        "type": "filter",
+        "position": {
+          "x": 1200,
+          "y": 220
+        },
+        "data": {
+          "label": "Keep valid records",
+          "config": {
+            "array": "validate.output",
+            "keepWhere": "{{item.valid}} == true",
+            "mode": "keep"
+          }
+        }
+      },
+      {
+        "id": "reconcile",
+        "type": "ai_agent",
+        "position": {
+          "x": 1480,
+          "y": 220
+        },
+        "data": {
+          "label": "Reconcile conflicts",
+          "config": {
+            "instructions": "Compare records from the sources, identify conflicting values, and return a canonical record plus unresolved discrepancies.",
+            "input": "{{filter.output}}"
+          }
+        }
+      },
+      {
+        "id": "load",
+        "type": "database_insert",
+        "position": {
+          "x": 1760,
+          "y": 80
+        },
+        "data": {
+          "label": "Load canonical data",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "INSERT INTO canonical_data (captured_at, payload) VALUES (NOW(), '{{reconcile.output}}')"
+          }
+        }
+      },
+      {
+        "id": "alert",
+        "type": "notification",
+        "position": {
+          "x": 1760,
+          "y": 360
+        },
+        "data": {
+          "label": "Alert data quality issue",
+          "config": {
+            "channel": "slack",
+            "message": "Multi-source pipeline found unresolved discrepancies.\n{{reconcile.output}}"
+          }
+        }
+      },
+      {
+        "id": "audit",
+        "type": "database_insert",
+        "position": {
+          "x": 2040,
+          "y": 220
+        },
+        "data": {
+          "label": "Store pipeline audit",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "INSERT INTO pipeline_runs (run_at, status, payload) VALUES (NOW(),'completed','{{reconcile.output}}')"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-trigger-source_a",
+        "source": "trigger",
+        "target": "source_a",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-trigger-source_b",
+        "source": "trigger",
+        "target": "source_b",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-source_a-merge",
+        "source": "source_a",
+        "target": "merge",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-source_b-merge",
+        "source": "source_b",
+        "target": "merge",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-merge-validate",
+        "source": "merge",
+        "target": "validate",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-validate-filter",
+        "source": "validate",
+        "target": "filter",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-filter-reconcile",
+        "source": "filter",
+        "target": "reconcile",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-reconcile-load",
+        "source": "reconcile",
+        "target": "load",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-reconcile-alert",
+        "source": "reconcile",
+        "target": "alert",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-load-audit",
+        "source": "load",
+        "target": "audit",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-alert-audit",
+        "source": "alert",
+        "target": "audit",
+        "sourceHandle": null
+      }
+    ]
+  }
+}

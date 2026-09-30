@@ -1,0 +1,229 @@
+{
+  "slug": "deal-progression-stage-gates",
+  "name": "Deal Progression Automation with Stage Gates",
+  "description": "Validate evidence before CRM stage progression, require approval for controlled stages, and keep an audit trail.",
+  "category": "RevOps/Sales",
+  "icon": "Milestone",
+  "tags": [
+    "crm",
+    "deal-stage",
+    "approval",
+    "audit"
+  ],
+  "providers": [
+    "salesforce",
+    "database",
+    "slack"
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "trigger",
+        "type": "webhook_trigger",
+        "position": {
+          "x": 80,
+          "y": 220
+        },
+        "data": {
+          "label": "Deal updated",
+          "config": {
+            "method": "POST"
+          }
+        }
+      },
+      {
+        "id": "load",
+        "type": "database_query",
+        "position": {
+          "x": 360,
+          "y": 220
+        },
+        "data": {
+          "label": "Load deal context",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "SELECT * FROM deals WHERE deal_id='{{trigger.body.deal_id}}'"
+          }
+        }
+      },
+      {
+        "id": "validate",
+        "type": "ai_agent",
+        "position": {
+          "x": 640,
+          "y": 220
+        },
+        "data": {
+          "label": "Validate stage requirements",
+          "config": {
+            "instructions": "Evaluate stage requirements and return strict JSON with ready true or false, missing requirements, and evidence.",
+            "input": "Deal={{load.results}} Event={{trigger.body}}"
+          }
+        }
+      },
+      {
+        "id": "gate",
+        "type": "router",
+        "position": {
+          "x": 920,
+          "y": 220
+        },
+        "data": {
+          "label": "Stage gate result",
+          "config": {
+            "input": "{{validate.output}}",
+            "routes": [
+              "(?s).*\"ready\"\\s*:\\s*true.*",
+              "(?s).*\"ready\"\\s*:\\s*false.*"
+            ]
+          }
+        }
+      },
+      {
+        "id": "approval",
+        "type": "human_approval",
+        "position": {
+          "x": 1200,
+          "y": 80
+        },
+        "data": {
+          "label": "Approve stage progression",
+          "config": {
+            "prompt": "Review the deal evidence before advancing the stage."
+          }
+        }
+      },
+      {
+        "id": "advance",
+        "type": "http_request",
+        "position": {
+          "x": 1480,
+          "y": 80
+        },
+        "data": {
+          "label": "Advance CRM stage",
+          "config": {
+            "method": "PATCH",
+            "url": "https://crm.example/v1/deals/{{trigger.body.deal_id}}",
+            "body": "{\"stage\":\"{{trigger.body.target_stage}}\"}"
+          }
+        }
+      },
+      {
+        "id": "block",
+        "type": "notification",
+        "position": {
+          "x": 1200,
+          "y": 360
+        },
+        "data": {
+          "label": "Notify missing requirements",
+          "config": {
+            "channel": "slack",
+            "message": "Deal progression blocked for {{trigger.body.deal_id}}.\n{{validate.output.missing}}"
+          }
+        }
+      },
+      {
+        "id": "notify",
+        "type": "notification",
+        "position": {
+          "x": 1760,
+          "y": 80
+        },
+        "data": {
+          "label": "Notify owner",
+          "config": {
+            "channel": "slack",
+            "message": "Deal {{trigger.body.deal_id}} advanced to {{trigger.body.target_stage}}."
+          }
+        }
+      },
+      {
+        "id": "audit",
+        "type": "database_insert",
+        "position": {
+          "x": 1760,
+          "y": 220
+        },
+        "data": {
+          "label": "Audit stage gate",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "INSERT INTO deal_stage_audit (deal_id, result, created_at) VALUES ('{{trigger.body.deal_id}}','{{validate.output}}',NOW())"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-trigger-load",
+        "source": "trigger",
+        "target": "load",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-load-validate",
+        "source": "load",
+        "target": "validate",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-validate-gate",
+        "source": "validate",
+        "target": "gate",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-gate-approval-true",
+        "source": "gate",
+        "target": "approval",
+        "sourceHandle": "route1"
+      },
+      {
+        "id": "e-gate-block-false",
+        "source": "gate",
+        "target": "block",
+        "sourceHandle": "route2"
+      },
+      {
+        "id": "e-approval-advance-approved",
+        "source": "approval",
+        "target": "advance",
+        "sourceHandle": "approved"
+      },
+      {
+        "id": "e-approval-block-rejected",
+        "source": "approval",
+        "target": "block",
+        "sourceHandle": "rejected"
+      },
+      {
+        "id": "e-advance-notify",
+        "source": "advance",
+        "target": "notify",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-advance-audit",
+        "source": "advance",
+        "target": "audit",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-block-audit",
+        "source": "block",
+        "target": "audit",
+        "sourceHandle": null
+      }
+    ]
+  }
+}

@@ -1,0 +1,258 @@
+{
+  "slug": "vendor-contract-renewal-risk-assessment",
+  "name": "Vendor Contract Renewal & Risk Assessment",
+  "description": "Assess upcoming vendor renewals, route by risk, require review for medium risk, and escalate high-risk contracts.",
+  "category": "Business Operations",
+  "icon": "FileClock",
+  "tags": [
+    "vendor-management",
+    "contracts",
+    "risk",
+    "renewal"
+  ],
+  "providers": [
+    "database",
+    "pagerduty",
+    "slack"
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "trigger",
+        "type": "schedule_trigger",
+        "position": {
+          "x": 80,
+          "y": 220
+        },
+        "data": {
+          "label": "Renewal scan",
+          "config": {
+            "cron": "0 6 * * *",
+            "timezone": "UTC"
+          }
+        }
+      },
+      {
+        "id": "contracts",
+        "type": "database_query",
+        "position": {
+          "x": 360,
+          "y": 220
+        },
+        "data": {
+          "label": "Load expiring contracts",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "SELECT * FROM vendor_contracts WHERE end_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '90 days'"
+          }
+        }
+      },
+      {
+        "id": "risk",
+        "type": "ai_agent",
+        "position": {
+          "x": 640,
+          "y": 220
+        },
+        "data": {
+          "label": "Assess renewal risk",
+          "config": {
+            "instructions": "Assess vendor renewal risk from contract terms, performance, incidents, spend, and compliance. Return risk level and recommendation.",
+            "input": "{{contracts.results}}"
+          }
+        }
+      },
+      {
+        "id": "route",
+        "type": "switch",
+        "position": {
+          "x": 920,
+          "y": 220
+        },
+        "data": {
+          "label": "Route by risk",
+          "config": {
+            "field": "{{risk.output.riskLevel}}",
+            "cases": [
+              "LOW",
+              "MEDIUM",
+              "HIGH"
+            ]
+          }
+        }
+      },
+      {
+        "id": "low",
+        "type": "notification",
+        "position": {
+          "x": 1200,
+          "y": 80
+        },
+        "data": {
+          "label": "Low-risk renewal",
+          "config": {
+            "channel": "slack",
+            "message": "Low-risk vendor renewal ready for standard processing."
+          }
+        }
+      },
+      {
+        "id": "medium",
+        "type": "human_approval",
+        "position": {
+          "x": 1200,
+          "y": 220
+        },
+        "data": {
+          "label": "Review medium-risk renewal",
+          "config": {
+            "prompt": "Review vendor performance and renewal recommendation before proceeding."
+          }
+        }
+      },
+      {
+        "id": "high",
+        "type": "pagerduty_trigger_incident",
+        "position": {
+          "x": 1200,
+          "y": 360
+        },
+        "data": {
+          "label": "Escalate high-risk renewal",
+          "config": {
+            "serviceId": "{{PAGERDUTY_PROCUREMENT_SERVICE_ID}}",
+            "title": "High-risk vendor renewal"
+          }
+        }
+      },
+      {
+        "id": "renew",
+        "type": "http_request",
+        "position": {
+          "x": 1480,
+          "y": 220
+        },
+        "data": {
+          "label": "Initiate renewal",
+          "config": {
+            "method": "POST",
+            "url": "https://contracts.example/v1/renew",
+            "body": "{{risk.output.recommendation}}"
+          }
+        }
+      },
+      {
+        "id": "audit",
+        "type": "database_insert",
+        "position": {
+          "x": 1760,
+          "y": 220
+        },
+        "data": {
+          "label": "Audit renewal decision",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "INSERT INTO vendor_renewal_audit (run_at, payload) VALUES (NOW(),'{{risk.output}}')"
+          }
+        }
+      },
+      {
+        "id": "notify",
+        "type": "notification",
+        "position": {
+          "x": 2040,
+          "y": 220
+        },
+        "data": {
+          "label": "Renewal summary",
+          "config": {
+            "channel": "slack",
+            "message": "Vendor renewal scan completed.\n{{risk.output}}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-trigger-contracts",
+        "source": "trigger",
+        "target": "contracts",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-contracts-risk",
+        "source": "contracts",
+        "target": "risk",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-risk-route",
+        "source": "risk",
+        "target": "route",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-route-low-case1",
+        "source": "route",
+        "target": "low",
+        "sourceHandle": "case1"
+      },
+      {
+        "id": "e-route-medium-case2",
+        "source": "route",
+        "target": "medium",
+        "sourceHandle": "case2"
+      },
+      {
+        "id": "e-route-high-case3",
+        "source": "route",
+        "target": "high",
+        "sourceHandle": "case3"
+      },
+      {
+        "id": "e-low-renew",
+        "source": "low",
+        "target": "renew",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-medium-renew-approved",
+        "source": "medium",
+        "target": "renew",
+        "sourceHandle": "approved"
+      },
+      {
+        "id": "e-medium-audit-rejected",
+        "source": "medium",
+        "target": "audit",
+        "sourceHandle": "rejected"
+      },
+      {
+        "id": "e-high-audit",
+        "source": "high",
+        "target": "audit",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-renew-audit",
+        "source": "renew",
+        "target": "audit",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-audit-notify",
+        "source": "audit",
+        "target": "notify",
+        "sourceHandle": null
+      }
+    ]
+  }
+}

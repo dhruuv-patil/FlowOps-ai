@@ -1,0 +1,229 @@
+{
+  "slug": "slo-burn-rate-alerting-escalation",
+  "name": "SLO Burn Rate Alerting & Escalation",
+  "description": "Calculate SLO burn rates on a short and long window, page the on-call team on breach, and escalate sustained violations.",
+  "category": "Reliability/Incident Management",
+  "icon": "Gauge",
+  "tags": [
+    "slo",
+    "burn-rate",
+    "alerting",
+    "escalation"
+  ],
+  "providers": [
+    "pagerduty",
+    "slack",
+    "database"
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "trigger",
+        "type": "schedule_trigger",
+        "position": {
+          "x": 80,
+          "y": 220
+        },
+        "data": {
+          "label": "SLO check",
+          "config": {
+            "cron": "*/5 * * * *",
+            "timezone": "UTC"
+          }
+        }
+      },
+      {
+        "id": "slo",
+        "type": "database_query",
+        "position": {
+          "x": 360,
+          "y": 220
+        },
+        "data": {
+          "label": "Load active SLOs",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "SELECT * FROM slos WHERE active = true"
+          }
+        }
+      },
+      {
+        "id": "metrics",
+        "type": "http_request",
+        "position": {
+          "x": 640,
+          "y": 220
+        },
+        "data": {
+          "label": "Fetch service metrics",
+          "config": {
+            "method": "GET",
+            "url": "https://observability.example/v1/slo/metrics"
+          }
+        }
+      },
+      {
+        "id": "burn",
+        "type": "transform",
+        "position": {
+          "x": 920,
+          "y": 220
+        },
+        "data": {
+          "label": "Calculate burn rates",
+          "config": {
+            "mapping": {
+              "slo": "{{slo.results}}",
+              "metrics": "{{metrics.body}}",
+              "window": "5m"
+            }
+          }
+        }
+      },
+      {
+        "id": "monitor",
+        "type": "sla_monitor",
+        "position": {
+          "x": 1200,
+          "y": 220
+        },
+        "data": {
+          "label": "Evaluate SLO",
+          "config": {
+            "successRatePath": "burn.output.successRate",
+            "latencyPath": "burn.output.latencyMs",
+            "minSuccessRate": 0.995,
+            "maxLatencyMs": 500
+          }
+        }
+      },
+      {
+        "id": "gate",
+        "type": "condition",
+        "position": {
+          "x": 1480,
+          "y": 220
+        },
+        "data": {
+          "label": "SLO breached?",
+          "config": {
+            "expression": "{{monitor.output.inSla}} == false"
+          }
+        }
+      },
+      {
+        "id": "incident",
+        "type": "pagerduty_trigger_incident",
+        "position": {
+          "x": 1760,
+          "y": 80
+        },
+        "data": {
+          "label": "Page on-call",
+          "config": {
+            "serviceId": "{{PAGERDUTY_SLO_SERVICE_ID}}",
+            "title": "SLO burn rate breach"
+          }
+        }
+      },
+      {
+        "id": "escalate",
+        "type": "escalation",
+        "position": {
+          "x": 1760,
+          "y": 360
+        },
+        "data": {
+          "label": "Escalate breach",
+          "config": {
+            "title": "SLO breach escalation",
+            "body": "{{burn.output}}",
+            "level": 2,
+            "channel": "slack"
+          }
+        }
+      },
+      {
+        "id": "notify",
+        "type": "notification",
+        "position": {
+          "x": 2040,
+          "y": 220
+        },
+        "data": {
+          "label": "Record healthy check",
+          "config": {
+            "channel": "slack",
+            "message": "SLO check passed. Burn data: {{burn.output}}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-trigger-slo",
+        "source": "trigger",
+        "target": "slo",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-trigger-metrics",
+        "source": "trigger",
+        "target": "metrics",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-slo-burn",
+        "source": "slo",
+        "target": "burn",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-metrics-burn",
+        "source": "metrics",
+        "target": "burn",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-burn-monitor",
+        "source": "burn",
+        "target": "monitor",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-monitor-gate",
+        "source": "monitor",
+        "target": "gate",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-gate-incident-true",
+        "source": "gate",
+        "target": "incident",
+        "sourceHandle": "true"
+      },
+      {
+        "id": "e-gate-notify-false",
+        "source": "gate",
+        "target": "notify",
+        "sourceHandle": "false"
+      },
+      {
+        "id": "e-incident-escalate",
+        "source": "incident",
+        "target": "escalate",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-escalate-notify",
+        "source": "escalate",
+        "target": "notify",
+        "sourceHandle": null
+      }
+    ]
+  }
+}

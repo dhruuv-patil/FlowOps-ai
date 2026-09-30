@@ -1,0 +1,268 @@
+{
+  "slug": "llm-prompt-evaluation-regression-pipeline",
+  "name": "LLM Prompt Evaluation & Regression Pipeline",
+  "description": "Run scheduled prompt evaluations, compare against a stored baseline, and create an incident when regression is detected.",
+  "category": "AI Operations",
+  "icon": "ChartNoAxesCombined",
+  "tags": [
+    "ai",
+    "evaluation",
+    "regression",
+    "baseline",
+    "incident"
+  ],
+  "providers": [
+    "ai",
+    "database",
+    "slack"
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "trigger",
+        "type": "schedule_trigger",
+        "position": {
+          "x": 80,
+          "y": 220
+        },
+        "data": {
+          "label": "Scheduled evaluation",
+          "config": {
+            "cron": "0 */6 * * *",
+            "timezone": "UTC"
+          }
+        }
+      },
+      {
+        "id": "load",
+        "type": "database_query",
+        "position": {
+          "x": 360,
+          "y": 220
+        },
+        "data": {
+          "label": "Load evaluation cases",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "SELECT * FROM prompt_eval_cases WHERE active = true ORDER BY id"
+          }
+        }
+      },
+      {
+        "id": "run",
+        "type": "ai_agent",
+        "position": {
+          "x": 640,
+          "y": 220
+        },
+        "data": {
+          "label": "Run prompt suite",
+          "config": {
+            "instructions": "Evaluate each test case against the current prompt. Return scores, outputs, and failure reasons.",
+            "input": "{{load.results}}"
+          }
+        }
+      },
+      {
+        "id": "validate",
+        "type": "ai_data_validator",
+        "position": {
+          "x": 920,
+          "y": 220
+        },
+        "data": {
+          "label": "Validate evaluation output",
+          "config": {
+            "input": "{{run.output}}",
+            "rules": [
+              "Output must contain a numeric score.",
+              "Every failed case must include a reason.",
+              "The evaluation result must be complete."
+            ]
+          }
+        }
+      },
+      {
+        "id": "baseline",
+        "type": "database_query",
+        "position": {
+          "x": 920,
+          "y": 360
+        },
+        "data": {
+          "label": "Load previous baseline",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "SELECT * FROM prompt_eval_baselines ORDER BY created_at DESC LIMIT 1"
+          }
+        }
+      },
+      {
+        "id": "compare",
+        "type": "ai_decision",
+        "position": {
+          "x": 1200,
+          "y": 220
+        },
+        "data": {
+          "label": "Regression decision",
+          "config": {
+            "question": "Did the new prompt materially regress against the baseline?",
+            "input": "Current={{validate.output}} Baseline={{baseline.results}}"
+          }
+        }
+      },
+      {
+        "id": "gate",
+        "type": "router",
+        "position": {
+          "x": 1480,
+          "y": 220
+        },
+        "data": {
+          "label": "Regression decision",
+          "config": {
+            "input": "{{compare.output}}",
+            "routes": [
+              "(?s).*\"decision\"\\s*:\\s*true.*",
+              "(?s).*\"decision\"\\s*:\\s*false.*"
+            ]
+          }
+        }
+      },
+      {
+        "id": "incident",
+        "type": "incident_creator",
+        "position": {
+          "x": 1760,
+          "y": 80
+        },
+        "data": {
+          "label": "Create regression incident",
+          "config": {
+            "title": "LLM prompt regression detected",
+            "severity": "HIGH",
+            "body": "{{compare.output}}",
+            "channel": "slack"
+          }
+        }
+      },
+      {
+        "id": "store",
+        "type": "database_insert",
+        "position": {
+          "x": 1480,
+          "y": 360
+        },
+        "data": {
+          "label": "Store evaluation result",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "INSERT INTO prompt_eval_results (run_at, result) VALUES (NOW(), '{{validate.output}}')"
+          }
+        }
+      },
+      {
+        "id": "notify",
+        "type": "notification",
+        "position": {
+          "x": 2040,
+          "y": 220
+        },
+        "data": {
+          "label": "Evaluation summary",
+          "config": {
+            "channel": "slack",
+            "message": "Prompt evaluation completed. Regression={{compare.output.decision}}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-trigger-load",
+        "source": "trigger",
+        "target": "load",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-load-run",
+        "source": "load",
+        "target": "run",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-run-validate",
+        "source": "run",
+        "target": "validate",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-validate-compare",
+        "source": "validate",
+        "target": "compare",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-baseline-compare",
+        "source": "baseline",
+        "target": "compare",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-compare-gate",
+        "source": "compare",
+        "target": "gate",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-gate-incident-true",
+        "source": "gate",
+        "target": "incident",
+        "sourceHandle": "route1"
+      },
+      {
+        "id": "e-gate-store-false",
+        "source": "gate",
+        "target": "store",
+        "sourceHandle": "route2"
+      },
+      {
+        "id": "e-gate-store-true",
+        "source": "gate",
+        "target": "store",
+        "sourceHandle": "route1"
+      },
+      {
+        "id": "e-store-notify",
+        "source": "store",
+        "target": "notify",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-incident-notify",
+        "source": "incident",
+        "target": "notify",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-trigger-baseline",
+        "source": "trigger",
+        "target": "baseline",
+        "sourceHandle": null
+      }
+    ]
+  }
+}

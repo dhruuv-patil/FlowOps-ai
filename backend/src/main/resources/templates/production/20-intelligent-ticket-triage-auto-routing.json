@@ -1,0 +1,203 @@
+{
+  "slug": "intelligent-ticket-triage-auto-routing",
+  "name": "Intelligent Ticket Triage & Auto-Routing",
+  "description": "Classify support tickets with AI, gate low-confidence routing, and send each case to the correct operational queue.",
+  "category": "Customer Support",
+  "icon": "TicketCheck",
+  "tags": [
+    "ticket-triage",
+    "routing",
+    "ai",
+    "support"
+  ],
+  "providers": [
+    "ai",
+    "jira",
+    "slack"
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "trigger",
+        "type": "webhook_trigger",
+        "position": {
+          "x": 80,
+          "y": 220
+        },
+        "data": {
+          "label": "Support ticket",
+          "config": {
+            "method": "POST"
+          }
+        }
+      },
+      {
+        "id": "dedupe",
+        "type": "idempotency_check",
+        "position": {
+          "x": 360,
+          "y": 220
+        },
+        "data": {
+          "label": "Deduplicate ticket",
+          "config": {
+            "key": "{{trigger.body.ticket_id}}"
+          }
+        }
+      },
+      {
+        "id": "classify",
+        "type": "ai_agent",
+        "position": {
+          "x": 640,
+          "y": 220
+        },
+        "data": {
+          "label": "Classify and summarize",
+          "config": {
+            "instructions": "Classify the ticket and return strict JSON with team exactly support, billing, or engineering, confidence, and rationale.",
+            "input": "{{trigger.body}}"
+          }
+        }
+      },
+      {
+        "id": "route",
+        "type": "router",
+        "position": {
+          "x": 1480,
+          "y": 220
+        },
+        "data": {
+          "label": "Route by team",
+          "config": {
+            "input": "{{classify.output}}",
+            "routes": [
+              "(?s).*\"team\"\\s*:\\s*\"support\".*",
+              "(?s).*\"team\"\\s*:\\s*\"billing\".*",
+              "(?s).*\"team\"\\s*:\\s*\"engineering\".*"
+            ]
+          }
+        }
+      },
+      {
+        "id": "support",
+        "type": "notification",
+        "position": {
+          "x": 1760,
+          "y": 80
+        },
+        "data": {
+          "label": "Route support",
+          "config": {
+            "channel": "slack",
+            "message": "Ticket {{trigger.body.ticket_id}} routed to Support."
+          }
+        }
+      },
+      {
+        "id": "billing",
+        "type": "notification",
+        "position": {
+          "x": 1760,
+          "y": 220
+        },
+        "data": {
+          "label": "Route billing",
+          "config": {
+            "channel": "slack",
+            "message": "Ticket {{trigger.body.ticket_id}} routed to Billing."
+          }
+        }
+      },
+      {
+        "id": "engineering",
+        "type": "jira",
+        "position": {
+          "x": 1760,
+          "y": 360
+        },
+        "data": {
+          "label": "Create engineering issue",
+          "config": {
+            "siteUrl": "{{JIRA_SITE_URL}}",
+            "project": "SUP",
+            "issueType": "Bug",
+            "summary": "Support ticket {{trigger.body.ticket_id}}",
+            "description": "{{classify.output}}"
+          }
+        }
+      },
+      {
+        "id": "notify",
+        "type": "notification",
+        "position": {
+          "x": 2040,
+          "y": 500
+        },
+        "data": {
+          "label": "Triage audit",
+          "config": {
+            "channel": "slack",
+            "message": "Ticket triaged: {{classify.output}}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-trigger-dedupe",
+        "source": "trigger",
+        "target": "dedupe",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-dedupe-classify",
+        "source": "dedupe",
+        "target": "classify",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-route-support-case1",
+        "source": "route",
+        "target": "support",
+        "sourceHandle": "route1"
+      },
+      {
+        "id": "e-route-billing-case2",
+        "source": "route",
+        "target": "billing",
+        "sourceHandle": "route2"
+      },
+      {
+        "id": "e-route-engineering-case3",
+        "source": "route",
+        "target": "engineering",
+        "sourceHandle": "route3"
+      },
+      {
+        "id": "e-support-notify",
+        "source": "support",
+        "target": "notify",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-billing-notify",
+        "source": "billing",
+        "target": "notify",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-engineering-notify",
+        "source": "engineering",
+        "target": "notify",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-classify-route",
+        "source": "classify",
+        "target": "route",
+        "sourceHandle": null
+      }
+    ]
+  }
+}

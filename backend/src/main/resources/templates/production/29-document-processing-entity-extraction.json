@@ -1,0 +1,226 @@
+{
+  "slug": "document-processing-entity-extraction",
+  "name": "Document Processing & Entity Extraction Pipeline",
+  "description": "Extract and validate document entities, classify content, require review for persistence, and archive the source document.",
+  "category": "Data/Document Operations",
+  "icon": "FileSearch2",
+  "tags": [
+    "documents",
+    "extraction",
+    "validation",
+    "archive"
+  ],
+  "providers": [
+    "ai",
+    "database",
+    "s3",
+    "slack"
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "trigger",
+        "type": "webhook_trigger",
+        "position": {
+          "x": 80,
+          "y": 220
+        },
+        "data": {
+          "label": "Document uploaded",
+          "config": {
+            "method": "POST"
+          }
+        }
+      },
+      {
+        "id": "extract",
+        "type": "information_extractor",
+        "position": {
+          "x": 360,
+          "y": 220
+        },
+        "data": {
+          "label": "Extract entities",
+          "config": {
+            "fields": {
+              "parties": "Names of parties",
+              "dates": "Important dates",
+              "amounts": "Monetary amounts",
+              "obligations": "Key obligations"
+            },
+            "input": "{{trigger.body.content}}"
+          }
+        }
+      },
+      {
+        "id": "validate",
+        "type": "ai_data_validator",
+        "position": {
+          "x": 640,
+          "y": 220
+        },
+        "data": {
+          "label": "Validate extraction",
+          "config": {
+            "input": "{{extract.output}}",
+            "rules": [
+              "All required entity fields must be present.",
+              "Dates must be parseable.",
+              "Amounts must be numeric or explicitly marked unknown."
+            ]
+          }
+        }
+      },
+      {
+        "id": "classify",
+        "type": "text_classifier",
+        "position": {
+          "x": 920,
+          "y": 220
+        },
+        "data": {
+          "label": "Classify document",
+          "config": {
+            "categories": [
+              "contract",
+              "invoice",
+              "receipt",
+              "report",
+              "other"
+            ],
+            "input": "{{trigger.body.content}}"
+          }
+        }
+      },
+      {
+        "id": "approval",
+        "type": "human_approval",
+        "position": {
+          "x": 1200,
+          "y": 220
+        },
+        "data": {
+          "label": "Review sensitive document",
+          "config": {
+            "prompt": "Review extracted entities and document classification before persistence."
+          }
+        }
+      },
+      {
+        "id": "store",
+        "type": "database_insert",
+        "position": {
+          "x": 1480,
+          "y": 80
+        },
+        "data": {
+          "label": "Store structured document",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "INSERT INTO document_entities (document_id, doc_type, payload, created_at) VALUES ('{{trigger.body.id}}','{{classify.output}}','{{validate.output}}',NOW())"
+          }
+        }
+      },
+      {
+        "id": "archive",
+        "type": "s3_upload",
+        "position": {
+          "x": 1480,
+          "y": 360
+        },
+        "data": {
+          "label": "Archive source",
+          "config": {
+            "bucket": "{{DOCUMENT_BUCKET}}",
+            "key": "documents/{{trigger.body.id}}.bin",
+            "content": "{{trigger.body.content}}"
+          }
+        }
+      },
+      {
+        "id": "notify",
+        "type": "notification",
+        "position": {
+          "x": 1760,
+          "y": 220
+        },
+        "data": {
+          "label": "Processing complete",
+          "config": {
+            "channel": "slack",
+            "message": "Document {{trigger.body.id}} processed as {{classify.output}}."
+          }
+        }
+      },
+      {
+        "id": "dlq",
+        "type": "dead_letter_queue",
+        "position": {
+          "x": 1480,
+          "y": 500
+        },
+        "data": {
+          "label": "Queue rejected document",
+          "config": {
+            "payloadPath": "{{trigger.body}}",
+            "reason": "Document review or validation failed"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-trigger-extract",
+        "source": "trigger",
+        "target": "extract",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-extract-validate",
+        "source": "extract",
+        "target": "validate",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-validate-classify",
+        "source": "validate",
+        "target": "classify",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-classify-approval",
+        "source": "classify",
+        "target": "approval",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-approval-store-approved",
+        "source": "approval",
+        "target": "store",
+        "sourceHandle": "approved"
+      },
+      {
+        "id": "e-approval-dlq-rejected",
+        "source": "approval",
+        "target": "dlq",
+        "sourceHandle": "rejected"
+      },
+      {
+        "id": "e-store-archive",
+        "source": "store",
+        "target": "archive",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-archive-notify",
+        "source": "archive",
+        "target": "notify",
+        "sourceHandle": null
+      }
+    ]
+  }
+}

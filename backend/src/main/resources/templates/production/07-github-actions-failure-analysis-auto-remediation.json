@@ -1,0 +1,203 @@
+{
+  "slug": "github-actions-failure-analysis-auto-remediation",
+  "name": "GitHub Actions Failure Analysis & Auto-Remediation",
+  "description": "Analyze failed GitHub Actions runs with AI, gate remediation through human approval, and create an auditable remediation path.",
+  "category": "DevOps/Engineering",
+  "icon": "Github",
+  "tags": [
+    "github-actions",
+    "ci",
+    "root-cause",
+    "remediation"
+  ],
+  "providers": [
+    "github",
+    "ai",
+    "pagerduty",
+    "slack"
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "trigger",
+        "type": "webhook_trigger",
+        "position": {
+          "x": 80,
+          "y": 220
+        },
+        "data": {
+          "label": "GitHub Actions failure",
+          "config": {
+            "method": "POST"
+          }
+        }
+      },
+      {
+        "id": "dedupe",
+        "type": "idempotency_check",
+        "position": {
+          "x": 360,
+          "y": 220
+        },
+        "data": {
+          "label": "Deduplicate run",
+          "config": {
+            "key": "{{trigger.body.repository.full_name}}:{{trigger.body.workflow_run.id}}"
+          }
+        }
+      },
+      {
+        "id": "logs",
+        "type": "http_request",
+        "position": {
+          "x": 640,
+          "y": 220
+        },
+        "data": {
+          "label": "Fetch failed run logs",
+          "config": {
+            "method": "GET",
+            "url": "https://api.github.com/repos/{{trigger.body.repository.full_name}}/actions/runs/{{trigger.body.workflow_run.id}}/logs"
+          }
+        }
+      },
+      {
+        "id": "root",
+        "type": "ai_root_cause_analyzer",
+        "position": {
+          "x": 920,
+          "y": 220
+        },
+        "data": {
+          "label": "Analyze failure",
+          "config": {
+            "input": "{{logs.body}}",
+            "instructions": "Identify root cause, affected components, confidence, and safest remediation. Cite evidence from the logs."
+          }
+        }
+      },
+      {
+        "id": "approval",
+        "type": "human_approval",
+        "position": {
+          "x": 1480,
+          "y": 80
+        },
+        "data": {
+          "label": "Approve remediation",
+          "config": {
+            "prompt": "Review the root-cause analysis before applying a remediation."
+          }
+        }
+      },
+      {
+        "id": "issue",
+        "type": "github_create_issue",
+        "position": {
+          "x": 1760,
+          "y": 80
+        },
+        "data": {
+          "label": "Create remediation issue",
+          "config": {
+            "repo": "{{trigger.body.repository.full_name}}",
+            "title": "CI failure: {{trigger.body.workflow_run.name}}",
+            "body": "{{root.output}}"
+          }
+        }
+      },
+      {
+        "id": "incident",
+        "type": "pagerduty_trigger_incident",
+        "position": {
+          "x": 1760,
+          "y": 360
+        },
+        "data": {
+          "label": "Escalate repeated CI failure",
+          "config": {
+            "serviceId": "{{PAGERDUTY_DEV_SERVICE_ID}}",
+            "title": "Repeated CI failure in {{trigger.body.repository.full_name}}"
+          }
+        }
+      },
+      {
+        "id": "notify",
+        "type": "notification",
+        "position": {
+          "x": 2040,
+          "y": 220
+        },
+        "data": {
+          "label": "Notify developers",
+          "config": {
+            "channel": "slack",
+            "message": "GitHub Actions failure analyzed.\n{{root.output}}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-trigger-dedupe",
+        "source": "trigger",
+        "target": "dedupe",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-dedupe-logs",
+        "source": "dedupe",
+        "target": "logs",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-logs-root",
+        "source": "logs",
+        "target": "root",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-approval-issue-approved",
+        "source": "approval",
+        "target": "issue",
+        "sourceHandle": "approved"
+      },
+      {
+        "id": "e-approval-incident-rejected",
+        "source": "approval",
+        "target": "incident",
+        "sourceHandle": "rejected"
+      },
+      {
+        "id": "e-issue-notify",
+        "source": "issue",
+        "target": "notify",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-incident-notify",
+        "source": "incident",
+        "target": "notify",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-root-approval",
+        "source": "root",
+        "target": "approval",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-approval-issue-approved",
+        "source": "approval",
+        "target": "issue",
+        "sourceHandle": "approved"
+      },
+      {
+        "id": "e-approval-incident-rejected",
+        "source": "approval",
+        "target": "incident",
+        "sourceHandle": "rejected"
+      }
+    ]
+  }
+}

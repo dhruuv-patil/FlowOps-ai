@@ -1,0 +1,239 @@
+{
+  "slug": "territory-quota-planning",
+  "name": "Territory & Quota Planning Workflow",
+  "description": "Forecast territory attainment from pipeline and capacity data, gate quota plans, and surface material risk to sales leadership.",
+  "category": "RevOps/Sales",
+  "icon": "MapPinned",
+  "tags": [
+    "territory",
+    "quota",
+    "forecasting",
+    "planning"
+  ],
+  "providers": [
+    "database",
+    "slack",
+    "ai"
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "trigger",
+        "type": "schedule_trigger",
+        "position": {
+          "x": 80,
+          "y": 220
+        },
+        "data": {
+          "label": "Quota planning cycle",
+          "config": {
+            "cron": "0 8 1 * *",
+            "timezone": "UTC"
+          }
+        }
+      },
+      {
+        "id": "territories",
+        "type": "database_query",
+        "position": {
+          "x": 360,
+          "y": 80
+        },
+        "data": {
+          "label": "Load territory data",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "SELECT * FROM territories WHERE active=true"
+          }
+        }
+      },
+      {
+        "id": "pipeline",
+        "type": "database_query",
+        "position": {
+          "x": 360,
+          "y": 360
+        },
+        "data": {
+          "label": "Load pipeline data",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "SELECT * FROM sales_pipeline WHERE close_date >= CURRENT_DATE"
+          }
+        }
+      },
+      {
+        "id": "forecast",
+        "type": "ai_agent",
+        "position": {
+          "x": 640,
+          "y": 220
+        },
+        "data": {
+          "label": "Forecast attainment",
+          "config": {
+            "instructions": "Forecast quota attainment and return strict JSON with material_risk true or false, assumptions, and territory recommendations.",
+            "input": "Territories={{territories.results}} Pipeline={{pipeline.results}}"
+          }
+        }
+      },
+      {
+        "id": "risk",
+        "type": "router",
+        "position": {
+          "x": 920,
+          "y": 220
+        },
+        "data": {
+          "label": "Quota risk result",
+          "config": {
+            "input": "{{forecast.output}}",
+            "routes": [
+              "(?s).*\"material_risk\"\\s*:\\s*true.*",
+              "(?s).*\"material_risk\"\\s*:\\s*false.*"
+            ]
+          }
+        }
+      },
+      {
+        "id": "review",
+        "type": "human_approval",
+        "position": {
+          "x": 1200,
+          "y": 80
+        },
+        "data": {
+          "label": "Approve quota plan",
+          "config": {
+            "prompt": "Review forecast assumptions and proposed quota/capacity adjustments."
+          }
+        }
+      },
+      {
+        "id": "plan",
+        "type": "database_insert",
+        "position": {
+          "x": 1480,
+          "y": 80
+        },
+        "data": {
+          "label": "Store quota plan",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "INSERT INTO quota_plans (period, plan, created_at) VALUES ('{{trigger.timestamp}}','{{forecast.output}}',NOW())"
+          }
+        }
+      },
+      {
+        "id": "alert",
+        "type": "notification",
+        "position": {
+          "x": 1200,
+          "y": 360
+        },
+        "data": {
+          "label": "Alert sales leadership",
+          "config": {
+            "channel": "slack",
+            "message": "Territory quota risk detected.\n{{forecast.output}}"
+          }
+        }
+      },
+      {
+        "id": "notify",
+        "type": "notification",
+        "position": {
+          "x": 1760,
+          "y": 80
+        },
+        "data": {
+          "label": "Publish quota plan",
+          "config": {
+            "channel": "slack",
+            "message": "Quota planning cycle completed."
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-trigger-territories",
+        "source": "trigger",
+        "target": "territories",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-trigger-pipeline",
+        "source": "trigger",
+        "target": "pipeline",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-territories-forecast",
+        "source": "territories",
+        "target": "forecast",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-pipeline-forecast",
+        "source": "pipeline",
+        "target": "forecast",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-forecast-risk",
+        "source": "forecast",
+        "target": "risk",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-risk-review-true",
+        "source": "risk",
+        "target": "review",
+        "sourceHandle": "route1"
+      },
+      {
+        "id": "e-risk-plan-false",
+        "source": "risk",
+        "target": "plan",
+        "sourceHandle": "route2"
+      },
+      {
+        "id": "e-review-plan-approved",
+        "source": "review",
+        "target": "plan",
+        "sourceHandle": "approved"
+      },
+      {
+        "id": "e-review-alert-rejected",
+        "source": "review",
+        "target": "alert",
+        "sourceHandle": "rejected"
+      },
+      {
+        "id": "e-alert-notify",
+        "source": "alert",
+        "target": "notify",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-plan-notify",
+        "source": "plan",
+        "target": "notify",
+        "sourceHandle": null
+      }
+    ]
+  }
+}

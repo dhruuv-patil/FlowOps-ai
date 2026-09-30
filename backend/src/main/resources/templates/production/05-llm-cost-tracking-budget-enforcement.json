@@ -1,0 +1,260 @@
+{
+  "slug": "llm-cost-tracking-budget-enforcement",
+  "name": "LLM Cost Tracking & Budget Enforcement",
+  "description": "Collect model usage, calculate burn rate against budgets, persist snapshots, and trip a circuit when critical spend thresholds are breached.",
+  "category": "AI Operations",
+  "icon": "WalletCards",
+  "tags": [
+    "ai",
+    "cost",
+    "budgets",
+    "anomaly",
+    "circuit-breaker"
+  ],
+  "providers": [
+    "ai",
+    "database",
+    "slack"
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "trigger",
+        "type": "schedule_trigger",
+        "position": {
+          "x": 80,
+          "y": 220
+        },
+        "data": {
+          "label": "Cost collection",
+          "config": {
+            "cron": "0 * * * *",
+            "timezone": "UTC"
+          }
+        }
+      },
+      {
+        "id": "usage",
+        "type": "http_batch",
+        "position": {
+          "x": 360,
+          "y": 220
+        },
+        "data": {
+          "label": "Collect provider usage",
+          "config": {
+            "items": [
+              "https://provider-a.example/usage",
+              "https://provider-b.example/usage"
+            ],
+            "method": "GET"
+          }
+        }
+      },
+      {
+        "id": "aggregate",
+        "type": "transform",
+        "position": {
+          "x": 640,
+          "y": 220
+        },
+        "data": {
+          "label": "Aggregate spend",
+          "config": {
+            "mapping": {
+              "period": "{{trigger.timestamp}}",
+              "spend": "{{usage.results}}",
+              "currency": "USD"
+            }
+          }
+        }
+      },
+      {
+        "id": "budget",
+        "type": "database_query",
+        "position": {
+          "x": 920,
+          "y": 220
+        },
+        "data": {
+          "label": "Load budgets",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "SELECT * FROM ai_budgets WHERE active = true"
+          }
+        }
+      },
+      {
+        "id": "compare",
+        "type": "ai_agent",
+        "position": {
+          "x": 1200,
+          "y": 220
+        },
+        "data": {
+          "label": "Calculate burn rate",
+          "config": {
+            "instructions": "Calculate current spend, projected period spend, variance to budget, and burn rate. Return machine-readable thresholds.",
+            "input": "Spend={{aggregate.output}} Budgets={{budget.results}}"
+          }
+        }
+      },
+      {
+        "id": "gate",
+        "type": "router",
+        "position": {
+          "x": 1480,
+          "y": 220
+        },
+        "data": {
+          "label": "Budget decision",
+          "config": {
+            "input": "{{compare.output}}",
+            "routes": [
+              "(?s).*\"critical\"\\s*:\\s*true.*",
+              "(?s).*\"critical\"\\s*:\\s*false.*"
+            ]
+          }
+        }
+      },
+      {
+        "id": "breaker",
+        "type": "circuit_breaker",
+        "position": {
+          "x": 1760,
+          "y": 80
+        },
+        "data": {
+          "label": "Open cost circuit",
+          "config": {
+            "metricPath": "compare.output.burnRate",
+            "threshold": 1.2
+          }
+        }
+      },
+      {
+        "id": "incident",
+        "type": "incident_creator",
+        "position": {
+          "x": 2040,
+          "y": 80
+        },
+        "data": {
+          "label": "Create cost incident",
+          "config": {
+            "title": "LLM budget threshold breached",
+            "severity": "CRITICAL",
+            "body": "{{compare.output}}",
+            "channel": "slack"
+          }
+        }
+      },
+      {
+        "id": "store",
+        "type": "database_insert",
+        "position": {
+          "x": 1760,
+          "y": 360
+        },
+        "data": {
+          "label": "Store cost snapshot",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "INSERT INTO ai_cost_snapshots (captured_at, payload) VALUES (NOW(), '{{compare.output}}')"
+          }
+        }
+      },
+      {
+        "id": "notify",
+        "type": "notification",
+        "position": {
+          "x": 2040,
+          "y": 360
+        },
+        "data": {
+          "label": "Cost report",
+          "config": {
+            "channel": "slack",
+            "message": "LLM cost snapshot: {{compare.output}}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-trigger-usage",
+        "source": "trigger",
+        "target": "usage",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-usage-aggregate",
+        "source": "usage",
+        "target": "aggregate",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-aggregate-budget",
+        "source": "aggregate",
+        "target": "budget",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-budget-compare",
+        "source": "budget",
+        "target": "compare",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-compare-gate",
+        "source": "compare",
+        "target": "gate",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-gate-breaker-true",
+        "source": "gate",
+        "target": "breaker",
+        "sourceHandle": "route1"
+      },
+      {
+        "id": "e-gate-store-false",
+        "source": "gate",
+        "target": "store",
+        "sourceHandle": "route2"
+      },
+      {
+        "id": "e-gate-store-true",
+        "source": "gate",
+        "target": "store",
+        "sourceHandle": "route1"
+      },
+      {
+        "id": "e-breaker-incident-open",
+        "source": "breaker",
+        "target": "incident",
+        "sourceHandle": "open"
+      },
+      {
+        "id": "e-incident-notify",
+        "source": "incident",
+        "target": "notify",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-store-notify",
+        "source": "store",
+        "target": "notify",
+        "sourceHandle": null
+      }
+    ]
+  }
+}

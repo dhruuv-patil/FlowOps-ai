@@ -1,0 +1,255 @@
+{
+  "slug": "infrastructure-drift-reconciliation",
+  "name": "Infrastructure Drift Detection & Reconciliation",
+  "description": "Compare desired and actual infrastructure state, gate reconciliation, and verify convergence after remediation.",
+  "category": "DevOps/Engineering",
+  "icon": "GitCompareArrows",
+  "tags": [
+    "infrastructure",
+    "drift",
+    "reconciliation",
+    "approval",
+    "verification"
+  ],
+  "providers": [
+    "slack"
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "trigger",
+        "type": "schedule_trigger",
+        "position": {
+          "x": 80,
+          "y": 220
+        },
+        "data": {
+          "label": "Drift scan",
+          "config": {
+            "cron": "*/30 * * * *",
+            "timezone": "UTC"
+          }
+        }
+      },
+      {
+        "id": "desired",
+        "type": "http_request",
+        "position": {
+          "x": 360,
+          "y": 220
+        },
+        "data": {
+          "label": "Fetch desired state",
+          "config": {
+            "method": "GET",
+            "url": "https://config.example/v1/infrastructure/desired"
+          }
+        }
+      },
+      {
+        "id": "actual",
+        "type": "http_request",
+        "position": {
+          "x": 360,
+          "y": 360
+        },
+        "data": {
+          "label": "Fetch actual state",
+          "config": {
+            "method": "GET",
+            "url": "https://config.example/v1/infrastructure/actual"
+          }
+        }
+      },
+      {
+        "id": "diff",
+        "type": "ai_agent",
+        "position": {
+          "x": 640,
+          "y": 220
+        },
+        "data": {
+          "label": "Detect drift",
+          "config": {
+            "instructions": "Compare desired and actual infrastructure state and return strict JSON with material exactly true or false, drift items, evidence, and a safe reconciliation plan.",
+            "input": "Desired={{desired.body}} Actual={{actual.body}}"
+          }
+        }
+      },
+      {
+        "id": "gate",
+        "type": "router",
+        "position": {
+          "x": 920,
+          "y": 220
+        },
+        "data": {
+          "label": "Drift classification",
+          "config": {
+            "input": "{{diff.output}}",
+            "routes": [
+              "(?s).*\"material\"\\s*:\\s*true.*",
+              "(?s).*\"material\"\\s*:\\s*false.*"
+            ]
+          }
+        }
+      },
+      {
+        "id": "approval",
+        "type": "human_approval",
+        "position": {
+          "x": 1200,
+          "y": 80
+        },
+        "data": {
+          "label": "Approve reconciliation",
+          "config": {
+            "prompt": "Review proposed infrastructure reconciliation before changes are applied."
+          }
+        }
+      },
+      {
+        "id": "reconcile",
+        "type": "http_request",
+        "position": {
+          "x": 1480,
+          "y": 80
+        },
+        "data": {
+          "label": "Apply reconciliation",
+          "config": {
+            "method": "POST",
+            "url": "https://config.example/v1/infrastructure/reconcile",
+            "body": "{{diff.output.plan}}"
+          }
+        }
+      },
+      {
+        "id": "verify",
+        "type": "health_check",
+        "position": {
+          "x": 1760,
+          "y": 80
+        },
+        "data": {
+          "label": "Verify state",
+          "config": {
+            "checks": [
+              {
+                "path": "reconcile.body.status",
+                "op": "==",
+                "value": "converged"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "incident",
+        "type": "incident_creator",
+        "position": {
+          "x": 1480,
+          "y": 360
+        },
+        "data": {
+          "label": "Create drift incident",
+          "config": {
+            "title": "Infrastructure drift could not be reconciled",
+            "severity": "HIGH",
+            "body": "{{reconcile.body}}",
+            "channel": "slack"
+          }
+        }
+      },
+      {
+        "id": "notify",
+        "type": "notification",
+        "position": {
+          "x": 1760,
+          "y": 360
+        },
+        "data": {
+          "label": "Drift report",
+          "config": {
+            "channel": "slack",
+            "message": "Infrastructure drift scan completed.\n{{diff.output}}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-trigger-desired",
+        "source": "trigger",
+        "target": "desired",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-trigger-actual",
+        "source": "trigger",
+        "target": "actual",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-desired-diff",
+        "source": "desired",
+        "target": "diff",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-actual-diff",
+        "source": "actual",
+        "target": "diff",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-diff-gate",
+        "source": "diff",
+        "target": "gate",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-gate-approval-true",
+        "source": "gate",
+        "target": "approval",
+        "sourceHandle": "route1"
+      },
+      {
+        "id": "e-gate-notify-false",
+        "source": "gate",
+        "target": "notify",
+        "sourceHandle": "route2"
+      },
+      {
+        "id": "e-approval-reconcile-approved",
+        "source": "approval",
+        "target": "reconcile",
+        "sourceHandle": "approved"
+      },
+      {
+        "id": "e-approval-notify-rejected",
+        "source": "approval",
+        "target": "notify",
+        "sourceHandle": "rejected"
+      },
+      {
+        "id": "e-reconcile-verify",
+        "source": "reconcile",
+        "target": "verify",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-verify-notify-healthy",
+        "source": "verify",
+        "target": "notify",
+        "sourceHandle": "healthy"
+      },
+      {
+        "id": "e-verify-incident-unhealthy",
+        "source": "verify",
+        "target": "incident",
+        "sourceHandle": "unhealthy"
+      }
+    ]
+  }
+}

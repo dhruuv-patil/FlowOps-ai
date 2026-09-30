@@ -1,0 +1,215 @@
+{
+  "slug": "ai-agent-code-review-orchestrator",
+  "name": "AI Agent Code Review Orchestrator",
+  "description": "Review pull requests with AI, gate high-risk findings through human approval, and preserve failed reviews for recovery.",
+  "category": "AI Operations",
+  "icon": "Bot",
+  "tags": [
+    "ai",
+    "code-review",
+    "human-in-the-loop",
+    "security",
+    "reliability"
+  ],
+  "providers": [
+    "github",
+    "ai",
+    "slack"
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "trigger",
+        "type": "webhook_trigger",
+        "position": {
+          "x": 80,
+          "y": 220
+        },
+        "data": {
+          "label": "Pull request opened/updated",
+          "config": {
+            "method": "POST"
+          }
+        }
+      },
+      {
+        "id": "dedupe",
+        "type": "idempotency_check",
+        "position": {
+          "x": 360,
+          "y": 220
+        },
+        "data": {
+          "label": "Deduplicate PR event",
+          "config": {
+            "key": "{{trigger.body.repository.full_name}}:{{trigger.body.pull_request.number}}:{{trigger.body.pull_request.head.sha}}"
+          }
+        }
+      },
+      {
+        "id": "fetch",
+        "type": "http_request",
+        "position": {
+          "x": 640,
+          "y": 220
+        },
+        "data": {
+          "label": "Fetch changed files",
+          "config": {
+            "method": "GET",
+            "url": "https://api.github.com/repos/{{trigger.body.repository.full_name}}/pulls/{{trigger.body.pull_request.number}}/files"
+          }
+        }
+      },
+      {
+        "id": "review",
+        "type": "ai_agent",
+        "position": {
+          "x": 920,
+          "y": 220
+        },
+        "data": {
+          "label": "Review code",
+          "config": {
+            "instructions": "Review changed code for correctness, security, reliability, performance, and maintainability. Return strict JSON with a top-level risk value of HIGH or NORMAL, plus findings and rationale.",
+            "input": "{{fetch.body}}"
+          }
+        }
+      },
+      {
+        "id": "gate",
+        "type": "router",
+        "position": {
+          "x": 1200,
+          "y": 220
+        },
+        "data": {
+          "label": "Risk classification",
+          "config": {
+            "input": "{{review.output}}",
+            "routes": [
+              "(?s).*\"risk\"\\s*:\\s*\"HIGH\".*",
+              "(?s).*\"risk\"\\s*:\\s*\"NORMAL\".*"
+            ]
+          }
+        }
+      },
+      {
+        "id": "approval",
+        "type": "human_approval",
+        "position": {
+          "x": 1480,
+          "y": 80
+        },
+        "data": {
+          "label": "Human review required",
+          "config": {
+            "prompt": "Review the AI findings before allowing an approval or merge recommendation."
+          }
+        }
+      },
+      {
+        "id": "issue",
+        "type": "github_create_issue",
+        "position": {
+          "x": 1760,
+          "y": 80
+        },
+        "data": {
+          "label": "Create review issue",
+          "config": {
+            "repo": "{{trigger.body.repository.full_name}}",
+            "title": "AI code review findings for PR #{{trigger.body.pull_request.number}}",
+            "body": "{{review.output}}"
+          }
+        }
+      },
+      {
+        "id": "notify",
+        "type": "notification",
+        "position": {
+          "x": 1760,
+          "y": 360
+        },
+        "data": {
+          "label": "Notify engineering",
+          "config": {
+            "channel": "slack",
+            "message": "Code review completed for PR #{{trigger.body.pull_request.number}}.\n{{review.output}}"
+          }
+        }
+      },
+      {
+        "id": "dlq",
+        "type": "dead_letter_queue",
+        "position": {
+          "x": 1480,
+          "y": 360
+        },
+        "data": {
+          "label": "Queue failed review",
+          "config": {
+            "payloadPath": "{{trigger.body}}",
+            "reason": "AI review failed or could not be completed."
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-trigger-dedupe",
+        "source": "trigger",
+        "target": "dedupe",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-dedupe-fetch",
+        "source": "dedupe",
+        "target": "fetch",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-fetch-review",
+        "source": "fetch",
+        "target": "review",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-review-gate",
+        "source": "review",
+        "target": "gate",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-gate-approval-true",
+        "source": "gate",
+        "target": "approval",
+        "sourceHandle": "route1"
+      },
+      {
+        "id": "e-gate-notify-false",
+        "source": "gate",
+        "target": "notify",
+        "sourceHandle": "route2"
+      },
+      {
+        "id": "e-approval-issue-approved",
+        "source": "approval",
+        "target": "issue",
+        "sourceHandle": "approved"
+      },
+      {
+        "id": "e-approval-dlq-rejected",
+        "source": "approval",
+        "target": "dlq",
+        "sourceHandle": "rejected"
+      },
+      {
+        "id": "e-issue-notify",
+        "source": "issue",
+        "target": "notify",
+        "sourceHandle": null
+      }
+    ]
+  }
+}

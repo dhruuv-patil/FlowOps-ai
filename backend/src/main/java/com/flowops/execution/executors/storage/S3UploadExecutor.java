@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 /** S3: uploads a file. */
 @Component
 public class S3UploadExecutor implements NodeExecutor {
-    @Override public String type() { return "s3:upload"; }
+    @Override public String type() { return "s3_upload"; }
 
     @Override
     public NodeResult execute(NodeExecutionContext ctx) {

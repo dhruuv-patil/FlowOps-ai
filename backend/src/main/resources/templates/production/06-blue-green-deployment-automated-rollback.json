@@ -1,0 +1,241 @@
+{
+  "slug": "blue-green-deployment-automated-rollback",
+  "name": "Blue-Green Deployment with Automated Rollback",
+  "description": "Deploy to an isolated green environment, validate health, require an approval before traffic cutover, and automatically route failures to rollback.",
+  "category": "DevOps/Engineering",
+  "icon": "GitBranch",
+  "tags": [
+    "deployment",
+    "blue-green",
+    "rollback",
+    "approval",
+    "health-check"
+  ],
+  "providers": [
+    "github",
+    "slack"
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "trigger",
+        "type": "webhook_trigger",
+        "position": {
+          "x": 80,
+          "y": 220
+        },
+        "data": {
+          "label": "Deployment requested",
+          "config": {
+            "method": "POST"
+          }
+        }
+      },
+      {
+        "id": "dedupe",
+        "type": "idempotency_check",
+        "position": {
+          "x": 360,
+          "y": 220
+        },
+        "data": {
+          "label": "Deduplicate deployment",
+          "config": {
+            "key": "{{trigger.body.deployment_id}}"
+          }
+        }
+      },
+      {
+        "id": "prepare",
+        "type": "http_request",
+        "position": {
+          "x": 640,
+          "y": 220
+        },
+        "data": {
+          "label": "Prepare green environment",
+          "config": {
+            "method": "POST",
+            "url": "https://deploy.example/v1/environments/green"
+          }
+        }
+      },
+      {
+        "id": "deploy",
+        "type": "http_request",
+        "position": {
+          "x": 920,
+          "y": 220
+        },
+        "data": {
+          "label": "Deploy release",
+          "config": {
+            "method": "POST",
+            "url": "https://deploy.example/v1/releases",
+            "body": "{\"release\":\"{{trigger.body.release}}\",\"environment\":\"green\"}"
+          }
+        }
+      },
+      {
+        "id": "health",
+        "type": "health_check",
+        "position": {
+          "x": 1200,
+          "y": 220
+        },
+        "data": {
+          "label": "Run health checks",
+          "config": {
+            "checks": [
+              {
+                "path": "deploy.body.status",
+                "op": "==",
+                "value": "ready"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "approval",
+        "type": "human_approval",
+        "position": {
+          "x": 1480,
+          "y": 80
+        },
+        "data": {
+          "label": "Approve traffic switch",
+          "config": {
+            "prompt": "Review green environment health and approve production traffic shift."
+          }
+        }
+      },
+      {
+        "id": "switch",
+        "type": "http_request",
+        "position": {
+          "x": 1760,
+          "y": 80
+        },
+        "data": {
+          "label": "Shift traffic to green",
+          "config": {
+            "method": "POST",
+            "url": "https://deploy.example/v1/traffic/switch",
+            "body": "{\"environment\":\"green\"}"
+          }
+        }
+      },
+      {
+        "id": "monitor",
+        "type": "execution_monitor",
+        "position": {
+          "x": 2040,
+          "y": 80
+        },
+        "data": {
+          "label": "Monitor deployment",
+          "config": {
+            "statusPath": "switch.body.status",
+            "durationPath": "switch.body.durationMs"
+          }
+        }
+      },
+      {
+        "id": "rollback",
+        "type": "http_request",
+        "position": {
+          "x": 1760,
+          "y": 360
+        },
+        "data": {
+          "label": "Rollback to blue",
+          "config": {
+            "method": "POST",
+            "url": "https://deploy.example/v1/traffic/switch",
+            "body": "{\"environment\":\"blue\"}"
+          }
+        }
+      },
+      {
+        "id": "incident",
+        "type": "incident_creator",
+        "position": {
+          "x": 2040,
+          "y": 360
+        },
+        "data": {
+          "label": "Create deployment incident",
+          "config": {
+            "title": "Blue-green deployment failed",
+            "severity": "HIGH",
+            "body": "{{health.output}}",
+            "channel": "slack"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-trigger-dedupe",
+        "source": "trigger",
+        "target": "dedupe",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-dedupe-prepare",
+        "source": "dedupe",
+        "target": "prepare",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-prepare-deploy",
+        "source": "prepare",
+        "target": "deploy",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-deploy-health",
+        "source": "deploy",
+        "target": "health",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-health-approval-healthy",
+        "source": "health",
+        "target": "approval",
+        "sourceHandle": "healthy"
+      },
+      {
+        "id": "e-health-rollback-unhealthy",
+        "source": "health",
+        "target": "rollback",
+        "sourceHandle": "unhealthy"
+      },
+      {
+        "id": "e-approval-switch-approved",
+        "source": "approval",
+        "target": "switch",
+        "sourceHandle": "approved"
+      },
+      {
+        "id": "e-approval-rollback-rejected",
+        "source": "approval",
+        "target": "rollback",
+        "sourceHandle": "rejected"
+      },
+      {
+        "id": "e-switch-monitor",
+        "source": "switch",
+        "target": "monitor",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-rollback-incident",
+        "source": "rollback",
+        "target": "incident",
+        "sourceHandle": null
+      }
+    ]
+  }
+}

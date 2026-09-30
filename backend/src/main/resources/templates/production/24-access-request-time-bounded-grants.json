@@ -1,0 +1,216 @@
+{
+  "slug": "access-request-time-bounded-grants",
+  "name": "Access Request Approval with Time-Bounded Grants",
+  "description": "Evaluate access risk, require approval, grant only until an explicit expiry, and keep an immutable audit trail.",
+  "category": "Security/Access",
+  "icon": "KeyRoundCheck",
+  "tags": [
+    "access",
+    "iam",
+    "approval",
+    "audit",
+    "least-privilege"
+  ],
+  "providers": [
+    "slack",
+    "database"
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "trigger",
+        "type": "webhook_trigger",
+        "position": {
+          "x": 80,
+          "y": 220
+        },
+        "data": {
+          "label": "Access request",
+          "config": {
+            "method": "POST"
+          }
+        }
+      },
+      {
+        "id": "dedupe",
+        "type": "idempotency_check",
+        "position": {
+          "x": 360,
+          "y": 220
+        },
+        "data": {
+          "label": "Deduplicate request",
+          "config": {
+            "key": "{{trigger.body.request_id}}"
+          }
+        }
+      },
+      {
+        "id": "risk",
+        "type": "ai_decision",
+        "position": {
+          "x": 640,
+          "y": 220
+        },
+        "data": {
+          "label": "Assess access risk",
+          "config": {
+            "question": "Is this access request low risk and within policy?",
+            "input": "{{trigger.body}}"
+          }
+        }
+      },
+      {
+        "id": "approval",
+        "type": "human_approval",
+        "position": {
+          "x": 920,
+          "y": 220
+        },
+        "data": {
+          "label": "Manager/security approval",
+          "config": {
+            "prompt": "Review requested role, resource, duration, and risk assessment."
+          }
+        }
+      },
+      {
+        "id": "grant",
+        "type": "http_request",
+        "position": {
+          "x": 1200,
+          "y": 80
+        },
+        "data": {
+          "label": "Grant time-bounded access",
+          "config": {
+            "method": "POST",
+            "url": "https://iam.example/v1/grants",
+            "body": "{\"user\":\"{{trigger.body.user}}\",\"resource\":\"{{trigger.body.resource}}\",\"expiresAt\":\"{{trigger.body.expiresAt}}\"}"
+          }
+        }
+      },
+      {
+        "id": "deny",
+        "type": "notification",
+        "position": {
+          "x": 1200,
+          "y": 360
+        },
+        "data": {
+          "label": "Reject request",
+          "config": {
+            "channel": "slack",
+            "message": "Access request {{trigger.body.request_id}} requires manual denial/rework."
+          }
+        }
+      },
+      {
+        "id": "audit",
+        "type": "database_insert",
+        "position": {
+          "x": 1480,
+          "y": 80
+        },
+        "data": {
+          "label": "Audit access grant",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "INSERT INTO access_audit (request_id, action, created_at) VALUES ('{{trigger.body.request_id}}','grant',NOW())"
+          }
+        }
+      },
+      {
+        "id": "notify",
+        "type": "notification",
+        "position": {
+          "x": 1760,
+          "y": 220
+        },
+        "data": {
+          "label": "Notify requester",
+          "config": {
+            "channel": "slack",
+            "message": "Access request {{trigger.body.request_id}} processed."
+          }
+        }
+      },
+      {
+        "id": "revoke",
+        "type": "http_request",
+        "position": {
+          "x": 1480,
+          "y": 360
+        },
+        "data": {
+          "label": "Revoke expired access",
+          "config": {
+            "method": "POST",
+            "url": "https://iam.example/v1/grants/revoke-expired",
+            "body": "{}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-trigger-dedupe",
+        "source": "trigger",
+        "target": "dedupe",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-dedupe-risk",
+        "source": "dedupe",
+        "target": "risk",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-risk-approval",
+        "source": "risk",
+        "target": "approval",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-approval-grant-approved",
+        "source": "approval",
+        "target": "grant",
+        "sourceHandle": "approved"
+      },
+      {
+        "id": "e-approval-deny-rejected",
+        "source": "approval",
+        "target": "deny",
+        "sourceHandle": "rejected"
+      },
+      {
+        "id": "e-grant-audit",
+        "source": "grant",
+        "target": "audit",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-audit-notify",
+        "source": "audit",
+        "target": "notify",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-deny-notify",
+        "source": "deny",
+        "target": "notify",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-notify-revoke",
+        "source": "notify",
+        "target": "revoke",
+        "sourceHandle": null
+      }
+    ]
+  }
+}

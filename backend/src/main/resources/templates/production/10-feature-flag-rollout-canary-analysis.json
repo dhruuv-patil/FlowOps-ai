@@ -1,0 +1,218 @@
+{
+  "slug": "feature-flag-rollout-canary-analysis",
+  "name": "Feature Flag Rollout with Canary Analysis",
+  "description": "Evaluate rollout telemetry, detect anomalies, make a controlled canary decision, and automatically roll back unhealthy releases.",
+  "category": "DevOps/Engineering",
+  "icon": "FlagTriangleRight",
+  "tags": [
+    "feature-flags",
+    "canary",
+    "anomaly-detection",
+    "rollback"
+  ],
+  "providers": [
+    "slack"
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "trigger",
+        "type": "schedule_trigger",
+        "position": {
+          "x": 80,
+          "y": 220
+        },
+        "data": {
+          "label": "Canary evaluation",
+          "config": {
+            "cron": "*/10 * * * *",
+            "timezone": "UTC"
+          }
+        }
+      },
+      {
+        "id": "metrics",
+        "type": "http_request",
+        "position": {
+          "x": 360,
+          "y": 220
+        },
+        "data": {
+          "label": "Fetch rollout metrics",
+          "config": {
+            "method": "GET",
+            "url": "https://observability.example/v1/feature-flags/{{FEATURE_FLAG}}/metrics"
+          }
+        }
+      },
+      {
+        "id": "anomaly",
+        "type": "anomaly_detector",
+        "position": {
+          "x": 640,
+          "y": 220
+        },
+        "data": {
+          "label": "Detect metric anomalies",
+          "config": {
+            "seriesPath": "metrics.body.error_rates",
+            "zThreshold": 2.5
+          }
+        }
+      },
+      {
+        "id": "decision",
+        "type": "ai_decision",
+        "position": {
+          "x": 920,
+          "y": 220
+        },
+        "data": {
+          "label": "Evaluate canary",
+          "config": {
+            "question": "Should the rollout continue?",
+            "input": "Metrics={{metrics.body}} Anomalies={{anomaly.output}}"
+          }
+        }
+      },
+      {
+        "id": "gate",
+        "type": "router",
+        "position": {
+          "x": 1200,
+          "y": 220
+        },
+        "data": {
+          "label": "Canary decision",
+          "config": {
+            "input": "{{decision.output}}",
+            "routes": [
+              "(?s).*\"decision\"\\s*:\\s*true.*",
+              "(?s).*\"decision\"\\s*:\\s*false.*"
+            ]
+          }
+        }
+      },
+      {
+        "id": "expand",
+        "type": "http_request",
+        "position": {
+          "x": 1480,
+          "y": 80
+        },
+        "data": {
+          "label": "Increase rollout",
+          "config": {
+            "method": "POST",
+            "url": "https://flags.example/v1/flags/{{FEATURE_FLAG}}/rollout",
+            "body": "{\"percentage\":{{NEXT_PERCENTAGE}}}"
+          }
+        }
+      },
+      {
+        "id": "rollback",
+        "type": "http_request",
+        "position": {
+          "x": 1480,
+          "y": 360
+        },
+        "data": {
+          "label": "Rollback flag",
+          "config": {
+            "method": "POST",
+            "url": "https://flags.example/v1/flags/{{FEATURE_FLAG}}/rollout",
+            "body": "{\"percentage\":0}"
+          }
+        }
+      },
+      {
+        "id": "incident",
+        "type": "incident_creator",
+        "position": {
+          "x": 1760,
+          "y": 360
+        },
+        "data": {
+          "label": "Create rollout incident",
+          "config": {
+            "title": "Feature flag canary failed",
+            "severity": "HIGH",
+            "body": "{{decision.output}}",
+            "channel": "slack"
+          }
+        }
+      },
+      {
+        "id": "notify",
+        "type": "notification",
+        "position": {
+          "x": 1760,
+          "y": 80
+        },
+        "data": {
+          "label": "Rollout status",
+          "config": {
+            "channel": "slack",
+            "message": "Feature flag {{FEATURE_FLAG}} rollout decision: {{decision.output}}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-trigger-metrics",
+        "source": "trigger",
+        "target": "metrics",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-metrics-anomaly",
+        "source": "metrics",
+        "target": "anomaly",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-anomaly-decision",
+        "source": "anomaly",
+        "target": "decision",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-decision-gate",
+        "source": "decision",
+        "target": "gate",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-gate-expand-true",
+        "source": "gate",
+        "target": "expand",
+        "sourceHandle": "route1"
+      },
+      {
+        "id": "e-gate-rollback-false",
+        "source": "gate",
+        "target": "rollback",
+        "sourceHandle": "route2"
+      },
+      {
+        "id": "e-expand-notify",
+        "source": "expand",
+        "target": "notify",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-rollback-incident",
+        "source": "rollback",
+        "target": "incident",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-incident-notify",
+        "source": "incident",
+        "target": "notify",
+        "sourceHandle": null
+      }
+    ]
+  }
+}

@@ -1,0 +1,272 @@
+{
+  "slug": "customer-health-score-alerting",
+  "name": "Customer Health Score Calculation & Alerting",
+  "description": "Combine product usage, support, billing, and renewal signals into a health score and create retention work for at-risk customers.",
+  "category": "Customer Support",
+  "icon": "HeartPulse",
+  "tags": [
+    "customer-health",
+    "churn-risk",
+    "customer-success"
+  ],
+  "providers": [
+    "database",
+    "jira",
+    "slack",
+    "ai"
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "trigger",
+        "type": "schedule_trigger",
+        "position": {
+          "x": 80,
+          "y": 220
+        },
+        "data": {
+          "label": "Health score refresh",
+          "config": {
+            "cron": "0 */4 * * *",
+            "timezone": "UTC"
+          }
+        }
+      },
+      {
+        "id": "usage",
+        "type": "database_query",
+        "position": {
+          "x": 360,
+          "y": 80
+        },
+        "data": {
+          "label": "Load product usage",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "SELECT * FROM customer_usage WHERE period >= CURRENT_DATE - 30"
+          }
+        }
+      },
+      {
+        "id": "support",
+        "type": "database_query",
+        "position": {
+          "x": 360,
+          "y": 360
+        },
+        "data": {
+          "label": "Load support history",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "SELECT * FROM support_tickets WHERE created_at >= CURRENT_DATE - 90"
+          }
+        }
+      },
+      {
+        "id": "billing",
+        "type": "database_query",
+        "position": {
+          "x": 360,
+          "y": 500
+        },
+        "data": {
+          "label": "Load billing signals",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "SELECT * FROM billing_events WHERE created_at >= CURRENT_DATE - 90"
+          }
+        }
+      },
+      {
+        "id": "score",
+        "type": "ai_agent",
+        "position": {
+          "x": 640,
+          "y": 220
+        },
+        "data": {
+          "label": "Calculate customer health",
+          "config": {
+            "instructions": "Calculate customer health and return strict JSON with risk exactly AT_RISK or HEALTHY, score, evidence, and recommended action.",
+            "input": "Usage={{usage.results}} Support={{support.results}} Billing={{billing.results}}"
+          }
+        }
+      },
+      {
+        "id": "risk",
+        "type": "router",
+        "position": {
+          "x": 920,
+          "y": 220
+        },
+        "data": {
+          "label": "Health risk result",
+          "config": {
+            "input": "{{score.output}}",
+            "routes": [
+              "(?s).*\"risk\"\\s*:\\s*\"AT_RISK\".*",
+              "(?s).*\"risk\"\\s*:\\s*\"HEALTHY\".*"
+            ]
+          }
+        }
+      },
+      {
+        "id": "success",
+        "type": "database_insert",
+        "position": {
+          "x": 1200,
+          "y": 360
+        },
+        "data": {
+          "label": "Store healthy score",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "INSERT INTO customer_health_scores (captured_at, score, payload) VALUES (NOW(), {{score.output.score}}, '{{score.output}}')"
+          }
+        }
+      },
+      {
+        "id": "alert",
+        "type": "notification",
+        "position": {
+          "x": 1200,
+          "y": 80
+        },
+        "data": {
+          "label": "Alert customer success",
+          "config": {
+            "channel": "slack",
+            "message": "Customer health risk detected.\n{{score.output}}"
+          }
+        }
+      },
+      {
+        "id": "task",
+        "type": "jira",
+        "position": {
+          "x": 1480,
+          "y": 80
+        },
+        "data": {
+          "label": "Create retention task",
+          "config": {
+            "siteUrl": "{{JIRA_SITE_URL}}",
+            "project": "CS",
+            "issueType": "Task",
+            "summary": "Customer health risk",
+            "description": "{{score.output}}"
+          }
+        }
+      },
+      {
+        "id": "audit",
+        "type": "database_insert",
+        "position": {
+          "x": 1480,
+          "y": 360
+        },
+        "data": {
+          "label": "Store health score",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "INSERT INTO customer_health_scores (captured_at, score, payload) VALUES (NOW(), {{score.output.score}}, '{{score.output}}')"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-trigger-usage",
+        "source": "trigger",
+        "target": "usage",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-trigger-support",
+        "source": "trigger",
+        "target": "support",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-trigger-billing",
+        "source": "trigger",
+        "target": "billing",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-usage-score",
+        "source": "usage",
+        "target": "score",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-support-score",
+        "source": "support",
+        "target": "score",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-billing-score",
+        "source": "billing",
+        "target": "score",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-score-risk",
+        "source": "score",
+        "target": "risk",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-risk-alert-true",
+        "source": "risk",
+        "target": "alert",
+        "sourceHandle": "route1"
+      },
+      {
+        "id": "e-risk-success-false",
+        "source": "risk",
+        "target": "success",
+        "sourceHandle": "route2"
+      },
+      {
+        "id": "e-alert-task",
+        "source": "alert",
+        "target": "task",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-task-audit",
+        "source": "task",
+        "target": "audit",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-success-audit",
+        "source": "success",
+        "target": "audit",
+        "sourceHandle": null
+      }
+    ]
+  }
+}

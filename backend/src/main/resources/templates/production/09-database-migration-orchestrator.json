@@ -1,0 +1,225 @@
+{
+  "slug": "database-migration-orchestrator",
+  "name": "Database Migration Orchestrator with Approval Gates",
+  "description": "Back up, approve, execute, verify, and safely roll back database migrations with idempotency and incident escalation.",
+  "category": "DevOps/Engineering",
+  "icon": "DatabaseZap",
+  "tags": [
+    "database",
+    "migration",
+    "backup",
+    "rollback",
+    "approval"
+  ],
+  "providers": [
+    "slack"
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "trigger",
+        "type": "webhook_trigger",
+        "position": {
+          "x": 80,
+          "y": 220
+        },
+        "data": {
+          "label": "Migration requested",
+          "config": {
+            "method": "POST"
+          }
+        }
+      },
+      {
+        "id": "lock",
+        "type": "idempotency_check",
+        "position": {
+          "x": 360,
+          "y": 220
+        },
+        "data": {
+          "label": "Migration idempotency",
+          "config": {
+            "key": "{{trigger.body.service}}:{{trigger.body.migration_id}}"
+          }
+        }
+      },
+      {
+        "id": "backup",
+        "type": "http_request",
+        "position": {
+          "x": 640,
+          "y": 220
+        },
+        "data": {
+          "label": "Create database backup",
+          "config": {
+            "method": "POST",
+            "url": "https://dbops.example/v1/backups",
+            "body": "{\"database\":\"{{trigger.body.database}}\"}"
+          }
+        }
+      },
+      {
+        "id": "approval",
+        "type": "human_approval",
+        "position": {
+          "x": 920,
+          "y": 220
+        },
+        "data": {
+          "label": "Approve migration",
+          "config": {
+            "prompt": "Review migration version, backup status, and risk before execution."
+          }
+        }
+      },
+      {
+        "id": "execute",
+        "type": "http_request",
+        "position": {
+          "x": 1200,
+          "y": 220
+        },
+        "data": {
+          "label": "Execute migration",
+          "config": {
+            "method": "POST",
+            "url": "https://dbops.example/v1/migrations/execute",
+            "body": "{{trigger.body}}"
+          }
+        }
+      },
+      {
+        "id": "verify",
+        "type": "health_check",
+        "position": {
+          "x": 1480,
+          "y": 220
+        },
+        "data": {
+          "label": "Verify schema",
+          "config": {
+            "checks": [
+              {
+                "path": "execute.body.status",
+                "op": "==",
+                "value": "success"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "rollback",
+        "type": "http_request",
+        "position": {
+          "x": 1480,
+          "y": 360
+        },
+        "data": {
+          "label": "Rollback migration",
+          "config": {
+            "method": "POST",
+            "url": "https://dbops.example/v1/migrations/rollback",
+            "body": "{\"migration_id\":\"{{trigger.body.migration_id}}\"}"
+          }
+        }
+      },
+      {
+        "id": "incident",
+        "type": "incident_creator",
+        "position": {
+          "x": 1760,
+          "y": 360
+        },
+        "data": {
+          "label": "Create migration incident",
+          "config": {
+            "title": "Database migration failed",
+            "severity": "CRITICAL",
+            "body": "{{execute.body}}",
+            "channel": "slack"
+          }
+        }
+      },
+      {
+        "id": "notify",
+        "type": "notification",
+        "position": {
+          "x": 2040,
+          "y": 220
+        },
+        "data": {
+          "label": "Migration result",
+          "config": {
+            "channel": "slack",
+            "message": "Migration {{trigger.body.migration_id}} completed with status {{execute.body.status}}."
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-trigger-lock",
+        "source": "trigger",
+        "target": "lock",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-lock-backup",
+        "source": "lock",
+        "target": "backup",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-backup-approval",
+        "source": "backup",
+        "target": "approval",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-approval-execute-approved",
+        "source": "approval",
+        "target": "execute",
+        "sourceHandle": "approved"
+      },
+      {
+        "id": "e-approval-notify-rejected",
+        "source": "approval",
+        "target": "notify",
+        "sourceHandle": "rejected"
+      },
+      {
+        "id": "e-execute-verify",
+        "source": "execute",
+        "target": "verify",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-verify-notify-healthy",
+        "source": "verify",
+        "target": "notify",
+        "sourceHandle": "healthy"
+      },
+      {
+        "id": "e-verify-rollback-unhealthy",
+        "source": "verify",
+        "target": "rollback",
+        "sourceHandle": "unhealthy"
+      },
+      {
+        "id": "e-rollback-incident",
+        "source": "rollback",
+        "target": "incident",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-incident-notify",
+        "source": "incident",
+        "target": "notify",
+        "sourceHandle": null
+      }
+    ]
+  }
+}

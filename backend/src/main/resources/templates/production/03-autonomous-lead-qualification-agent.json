@@ -1,0 +1,214 @@
+{
+  "slug": "autonomous-lead-qualification-agent",
+  "name": "Autonomous Lead Qualification Agent",
+  "description": "Enrich and score inbound leads with confidence gating, human review for uncertain decisions, and tier-based routing.",
+  "category": "AI Operations",
+  "icon": "UserCheck",
+  "tags": [
+    "ai",
+    "lead-scoring",
+    "crm",
+    "human-review"
+  ],
+  "providers": [
+    "hubspot",
+    "ai",
+    "slack",
+    "database"
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "trigger",
+        "type": "webhook_trigger",
+        "position": {
+          "x": 80,
+          "y": 220
+        },
+        "data": {
+          "label": "New lead",
+          "config": {
+            "method": "POST"
+          }
+        }
+      },
+      {
+        "id": "dedupe",
+        "type": "deduplicate",
+        "position": {
+          "x": 360,
+          "y": 220
+        },
+        "data": {
+          "label": "Deduplicate lead",
+          "config": {
+            "key": "{{trigger.body.email}}"
+          }
+        }
+      },
+      {
+        "id": "enrich",
+        "type": "http_request",
+        "position": {
+          "x": 640,
+          "y": 220
+        },
+        "data": {
+          "label": "Enrich company data",
+          "config": {
+            "method": "GET",
+            "url": "https://api.company-enrichment.example/v1/company?domain={{trigger.body.domain}}"
+          }
+        }
+      },
+      {
+        "id": "score",
+        "type": "ai_agent",
+        "position": {
+          "x": 920,
+          "y": 220
+        },
+        "data": {
+          "label": "Score lead",
+          "config": {
+            "instructions": "Score the lead and return strict JSON with tier exactly HOT, WARM, or COLD, plus score, confidence, and rationale.",
+            "input": "Lead={{trigger.body}} Enrichment={{enrich.body}}"
+          }
+        }
+      },
+      {
+        "id": "route",
+        "type": "router",
+        "position": {
+          "x": 1760,
+          "y": 220
+        },
+        "data": {
+          "label": "Route by tier",
+          "config": {
+            "input": "{{score.output}}",
+            "routes": [
+              "(?s).*\"tier\"\\s*:\\s*\"HOT\".*",
+              "(?s).*\"tier\"\\s*:\\s*\"WARM\".*",
+              "(?s).*\"tier\"\\s*:\\s*\"COLD\".*"
+            ]
+          }
+        }
+      },
+      {
+        "id": "hot",
+        "type": "notification",
+        "position": {
+          "x": 2040,
+          "y": 80
+        },
+        "data": {
+          "label": "Notify sales",
+          "config": {
+            "channel": "slack",
+            "message": "HOT lead: {{trigger.body.email}}\n{{score.output}}"
+          }
+        }
+      },
+      {
+        "id": "warm",
+        "type": "notification",
+        "position": {
+          "x": 2040,
+          "y": 220
+        },
+        "data": {
+          "label": "Queue nurture",
+          "config": {
+            "channel": "slack",
+            "message": "WARM lead queued for nurture: {{trigger.body.email}}"
+          }
+        }
+      },
+      {
+        "id": "cold",
+        "type": "database_insert",
+        "position": {
+          "x": 2040,
+          "y": 360
+        },
+        "data": {
+          "label": "Store cold lead",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "INSERT INTO lead_nurture (email, score, created_at) VALUES ('{{trigger.body.email}}', {{score.output.score}}, NOW())"
+          }
+        }
+      },
+      {
+        "id": "dlq",
+        "type": "dead_letter_queue",
+        "position": {
+          "x": 640,
+          "y": 500
+        },
+        "data": {
+          "label": "Queue duplicate",
+          "config": {
+            "payloadPath": "{{trigger.body}}",
+            "reason": "Duplicate lead event"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-trigger-dedupe",
+        "source": "trigger",
+        "target": "dedupe",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-dedupe-enrich-out",
+        "source": "dedupe",
+        "target": "enrich",
+        "sourceHandle": "passed"
+      },
+      {
+        "id": "e-dedupe-dlq-duplicate",
+        "source": "dedupe",
+        "target": "dlq",
+        "sourceHandle": "duplicate"
+      },
+      {
+        "id": "e-enrich-score",
+        "source": "enrich",
+        "target": "score",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-route-hot-case1",
+        "source": "route",
+        "target": "hot",
+        "sourceHandle": "route1"
+      },
+      {
+        "id": "e-route-warm-case2",
+        "source": "route",
+        "target": "warm",
+        "sourceHandle": "route2"
+      },
+      {
+        "id": "e-route-cold-case3",
+        "source": "route",
+        "target": "cold",
+        "sourceHandle": "route3"
+      },
+      {
+        "id": "e-score-route",
+        "source": "score",
+        "target": "route",
+        "sourceHandle": null
+      }
+    ]
+  }
+}

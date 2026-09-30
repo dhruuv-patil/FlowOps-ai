@@ -1,0 +1,182 @@
+{
+  "slug": "automated-report-generation-distribution",
+  "name": "Automated Report Generation & Distribution",
+  "description": "Collect business metrics, generate an evidence-backed report, archive it, and distribute it to configured recipients.",
+  "category": "Data/Document Operations",
+  "icon": "FileChartColumn",
+  "tags": [
+    "reporting",
+    "analytics",
+    "distribution",
+    "archive"
+  ],
+  "providers": [
+    "database",
+    "ai",
+    "s3",
+    "email"
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "trigger",
+        "type": "schedule_trigger",
+        "position": {
+          "x": 80,
+          "y": 220
+        },
+        "data": {
+          "label": "Weekly report",
+          "config": {
+            "cron": "0 7 * * MON",
+            "timezone": "UTC"
+          }
+        }
+      },
+      {
+        "id": "collect",
+        "type": "database_query",
+        "position": {
+          "x": 360,
+          "y": 220
+        },
+        "data": {
+          "label": "Collect metrics",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "SELECT * FROM business_metrics WHERE captured_at >= NOW() - INTERVAL '7 days'"
+          }
+        }
+      },
+      {
+        "id": "analyze",
+        "type": "ai_agent",
+        "position": {
+          "x": 640,
+          "y": 220
+        },
+        "data": {
+          "label": "Analyze trends",
+          "config": {
+            "instructions": "Produce an executive analysis of trends, anomalies, and material changes. Separate observations from recommendations.",
+            "input": "{{collect.results}}"
+          }
+        }
+      },
+      {
+        "id": "format",
+        "type": "ai_content_generator",
+        "position": {
+          "x": 920,
+          "y": 220
+        },
+        "data": {
+          "label": "Generate report",
+          "config": {
+            "input": "{{analyze.output}}",
+            "brief": "Create a concise executive report with summary, metrics, trends, risks, and recommended actions."
+          }
+        }
+      },
+      {
+        "id": "archive",
+        "type": "s3_upload",
+        "position": {
+          "x": 1200,
+          "y": 80
+        },
+        "data": {
+          "label": "Archive report",
+          "config": {
+            "bucket": "{{REPORT_BUCKET}}",
+            "key": "weekly/{{trigger.timestamp}}.md",
+            "content": "{{format.output}}"
+          }
+        }
+      },
+      {
+        "id": "email",
+        "type": "email",
+        "position": {
+          "x": 1200,
+          "y": 360
+        },
+        "data": {
+          "label": "Distribute report",
+          "config": {
+            "to": "{{REPORT_RECIPIENTS}}",
+            "subject": "Weekly FlowOps Report {{trigger.timestamp}}",
+            "body": "{{format.output}}"
+          }
+        }
+      },
+      {
+        "id": "audit",
+        "type": "database_insert",
+        "position": {
+          "x": 1480,
+          "y": 220
+        },
+        "data": {
+          "label": "Store report audit",
+          "config": {
+            "databaseType": "postgresql",
+            "host": "{{DATABASE_HOST}}",
+            "database": "flowops",
+            "username": "{{DATABASE_USER}}",
+            "password": "{{DATABASE_PASSWORD}}",
+            "sql": "INSERT INTO report_runs (run_at, report_key) VALUES (NOW(),'weekly/{{trigger.timestamp}}.md')"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-trigger-collect",
+        "source": "trigger",
+        "target": "collect",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-collect-analyze",
+        "source": "collect",
+        "target": "analyze",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-analyze-format",
+        "source": "analyze",
+        "target": "format",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-format-archive",
+        "source": "format",
+        "target": "archive",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-format-email",
+        "source": "format",
+        "target": "email",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-archive-audit",
+        "source": "archive",
+        "target": "audit",
+        "sourceHandle": null
+      },
+      {
+        "id": "e-email-audit",
+        "source": "email",
+        "target": "audit",
+        "sourceHandle": null
+      }
+    ]
+  }
+}
