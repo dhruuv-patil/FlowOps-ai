@@ -2,29 +2,49 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-
-import { useQuery } from "@tanstack/react-query";
-
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   ArrowUpRight,
   Calendar,
+  Loader2,
+  MoreHorizontal,
   Plus,
   Search,
+  Trash2,
   Workflow,
 } from "lucide-react";
 
-import { fetchWorkflows } from "@/lib/api";
+import { deleteWorkflow, fetchWorkflows } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { CreateWorkflowDialog } from "@/components/app/create-workflow-dialog";
 
 import {
@@ -39,12 +59,28 @@ type StatusFilter =
   | "DRAFT"
   | "PUBLISHED";
 
+type WorkflowItem = {
+  id: string;
+  name: string;
+  description?: string | null;
+  status: string;
+  updatedAt?: string | null;
+};
+
 export default function WorkflowsPage() {
-  const [search, setSearch] = useState("");
+  const queryClient = useQueryClient();
+
+  const [search, setSearch] =
+    useState("");
+
   const [filter, setFilter] =
     useState<StatusFilter>("ALL");
+
   const [createOpen, setCreateOpen] =
     useState(false);
+
+  const [toDelete, setToDelete] =
+    useState<WorkflowItem | null>(null);
 
   const workflows = useQuery({
     queryKey: ["workflows"],
@@ -54,28 +90,42 @@ export default function WorkflowsPage() {
   const allWorkflows =
     workflows.data?.workflows ?? [];
 
+  const removeMutation = useMutation({
+    mutationFn: (id: string) =>
+      deleteWorkflow(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["workflows"],
+      });
+      setToDelete(null);
+    },
+  });
+
   const items = useMemo(() => {
-    const query = search.trim().toLowerCase();
+    const query =
+      search.trim().toLowerCase();
 
-    return allWorkflows.filter((workflow) => {
-      if (
-        filter !== "ALL" &&
-        workflow.status !== filter
-      ) {
-        return false;
-      }
+    return allWorkflows.filter(
+      workflow => {
+        if (
+          filter !== "ALL" &&
+          workflow.status !== filter
+        ) {
+          return false;
+        }
 
-      if (
-        query &&
-        !workflow.name
-          .toLowerCase()
-          .includes(query)
-      ) {
-        return false;
-      }
+        if (
+          query &&
+          !workflow.name
+            .toLowerCase()
+            .includes(query)
+        ) {
+          return false;
+        }
 
-      return true;
-    });
+        return true;
+      },
+    );
   }, [
     allWorkflows,
     filter,
@@ -84,13 +134,14 @@ export default function WorkflowsPage() {
 
   const publishedCount =
     allWorkflows.filter(
-      (workflow) =>
-        workflow.status === "PUBLISHED",
+      workflow =>
+        workflow.status ===
+        "PUBLISHED",
     ).length;
 
   const draftCount =
     allWorkflows.filter(
-      (workflow) =>
+      workflow =>
         workflow.status === "DRAFT",
     ).length;
 
@@ -100,67 +151,67 @@ export default function WorkflowsPage() {
 
   return (
     <main className="min-h-full bg-black text-white">
-      <div className="mx-auto max-w-7xl px-4 pb-10 pt-6 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl px-4 pb-10 pt-5 sm:px-6 lg:px-8">
 
-        {/* ============================================================
+        {/* ================================================================
             HEADER
-        ============================================================ */}
+        ================================================================ */}
 
         <Reveal>
-          <section>
-            <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <section className="rounded-2xl border border-white/[0.07] bg-[#0D0D10] px-5 py-5 sm:px-6">
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <div className="flex size-7 items-center justify-center rounded-lg border border-white/[0.07] bg-[#111114]">
-                    <Workflow className="size-3.5 text-white/45" />
+                    <Workflow className="size-3.5 text-white/50" />
                   </div>
 
-                  <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-white/28">
+                  <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-white/30">
                     Workflow Control Plane
                   </span>
                 </div>
 
-                <h1 className="mt-3 text-[26px] font-semibold tracking-[-0.04em] text-white sm:text-[28px]">
+                <h1 className="mt-2.5 text-[24px] font-semibold tracking-[-0.035em] text-white">
                   Workflows
                 </h1>
 
-                <p className="mt-1.5 max-w-xl text-sm leading-5 text-white/38">
-                  Build, version, publish and operate
-                  your automation workflows from one place.
+                <p className="mt-1 max-w-xl text-sm leading-5 text-white/38">
+                  Build, version, execute and
+                  monitor your automation
+                  workflows from one place.
                 </p>
               </div>
 
               <Button
-                onClick={() => setCreateOpen(true)}
-                className="h-9 shrink-0 gap-2 self-start rounded-lg bg-white px-4 text-sm font-medium text-black shadow-none hover:bg-white/90 lg:self-end"
+                onClick={() =>
+                  setCreateOpen(true)
+                }
+                className="h-9 shrink-0 gap-2 self-start rounded-lg bg-white px-4 text-sm font-medium text-black shadow-none hover:bg-white/90"
               >
                 <Plus className="size-4" />
                 New Workflow
               </Button>
             </div>
-          </section>
-        </Reveal>
 
-        {/* ============================================================
-            METRICS
-        ============================================================ */}
+            {/* ============================================================
+                METRICS
+            ============================================================ */}
 
-        <Reveal
-          delay={0.03}
-          distance={8}
-        >
-          <section className="mt-6 overflow-hidden rounded-xl border border-white/[0.065] bg-[#0A0A0C]">
-            <div className="grid grid-cols-2 sm:grid-cols-4">
-
+            <div className="mt-6 grid grid-cols-2 overflow-hidden rounded-xl border border-white/[0.06] bg-[#0A0A0C] sm:grid-cols-4">
               <OverviewMetric
                 label="Total workflows"
-                value={allWorkflows.length}
+                value={
+                  allWorkflows.length
+                }
                 detail="All workflows"
               />
 
               <OverviewMetric
                 label="Published"
-                value={publishedCount}
+                value={
+                  publishedCount
+                }
                 tone={
                   publishedCount > 0
                     ? "positive"
@@ -189,17 +240,16 @@ export default function WorkflowsPage() {
                     : "All workflows"
                 }
               />
-
             </div>
           </section>
         </Reveal>
 
-        {/* ============================================================
-            SEARCH / FILTER TOOLBAR
-        ============================================================ */}
+        {/* ================================================================
+            SEARCH / FILTER
+        ================================================================ */}
 
         <Reveal
-          delay={0.05}
+          delay={0.04}
           distance={8}
         >
           <div className="mt-5 flex flex-col gap-2.5 sm:flex-row sm:items-center">
@@ -209,18 +259,22 @@ export default function WorkflowsPage() {
 
               <Input
                 value={search}
-                onChange={(event) =>
-                  setSearch(event.target.value)
+                onChange={event =>
+                  setSearch(
+                    event.target.value,
+                  )
                 }
                 placeholder="Search workflows..."
-                className="h-10 rounded-lg border-white/[0.075] bg-[#0D0D10] pl-10 pr-16 text-sm text-white/80 placeholder:text-white/22 shadow-none focus:border-indigo-400/25 focus:ring-0"
+                className="h-10 rounded-lg border-white/[0.075] bg-[#0D0D10] pl-10 text-sm text-white/80 placeholder:text-white/22 shadow-none focus:border-indigo-400/25 focus:ring-0"
               />
 
               {search && (
                 <button
                   type="button"
-                  onClick={() => setSearch("")}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-white/25 transition-colors hover:text-white/65"
+                  onClick={() =>
+                    setSearch("")
+                  }
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-white/25 hover:text-white/60"
                 >
                   Clear
                 </button>
@@ -234,7 +288,7 @@ export default function WorkflowsPage() {
                   "DRAFT",
                   "PUBLISHED",
                 ] as const
-              ).map((status) => {
+              ).map(status => {
                 const active =
                   filter === status;
 
@@ -264,46 +318,41 @@ export default function WorkflowsPage() {
           </div>
         </Reveal>
 
-        {/* ============================================================
-            RESULT INFORMATION
-        ============================================================ */}
+        {/* ================================================================
+            RESULT COUNT
+        ================================================================ */}
 
         {!workflows.isLoading &&
           allWorkflows.length > 0 && (
-            <Reveal
-              delay={0.07}
-              distance={6}
-            >
-              <div className="mt-4 flex items-center justify-between px-0.5">
-                <p className="text-[10px] text-white/22">
-                  {items.length} workflow
-                  {items.length === 1
-                    ? ""
-                    : "s"}
-                  {hasFilters
-                    ? " matching filters"
-                    : " in workspace"}
-                </p>
+            <div className="mt-4 flex items-center justify-between px-0.5">
+              <p className="text-[10px] text-white/22">
+                {items.length} workflow
+                {items.length === 1
+                  ? ""
+                  : "s"}
+                {hasFilters
+                  ? " matching filters"
+                  : " in workspace"}
+              </p>
 
-                {hasFilters && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSearch("");
-                      setFilter("ALL");
-                    }}
-                    className="text-[10px] text-white/25 transition-colors hover:text-white/65"
-                  >
-                    Clear filters
-                  </button>
-                )}
-              </div>
-            </Reveal>
+              {hasFilters && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearch("");
+                    setFilter("ALL");
+                  }}
+                  className="text-[10px] text-white/25 hover:text-white/60"
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
           )}
 
-        {/* ============================================================
+        {/* ================================================================
             CONTENT
-        ============================================================ */}
+        ================================================================ */}
 
         <div className="mt-3">
           {workflows.isLoading ? (
@@ -325,7 +374,7 @@ export default function WorkflowsPage() {
               stagger={0.035}
             >
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {items.map((workflow) => (
+                {items.map(workflow => (
                   <StaggerItem
                     key={workflow.id}
                     distance={8}
@@ -334,14 +383,15 @@ export default function WorkflowsPage() {
                       scale={1.004}
                       y={-2}
                     >
-                      <Link
-                        href={`/workflows/${workflow.id}`}
-                        className="block h-full"
-                      >
-                        <WorkflowCard
-                          workflow={workflow}
-                        />
-                      </Link>
+                      <WorkflowCard
+                        workflow={workflow}
+                        onDelete={() => {
+                          removeMutation.reset();
+                          setToDelete(
+                            workflow,
+                          );
+                        }}
+                      />
                     </HoverLift>
                   </StaggerItem>
                 ))}
@@ -350,9 +400,9 @@ export default function WorkflowsPage() {
           )}
         </div>
 
-        {/* ============================================================
+        {/* ================================================================
             FOOTER
-        ============================================================ */}
+        ================================================================ */}
 
         {!workflows.isLoading &&
           allWorkflows.length > 0 && (
@@ -372,8 +422,83 @@ export default function WorkflowsPage() {
 
       <CreateWorkflowDialog
         open={createOpen}
-        onOpenChange={setCreateOpen}
+        onOpenChange={
+          setCreateOpen
+        }
       />
+
+      {/* ================================================================
+          DELETE CONFIRMATION
+      ================================================================ */}
+
+      <AlertDialog
+        open={!!toDelete}
+        onOpenChange={open => {
+          if (
+            !open &&
+            !removeMutation.isPending
+          ) {
+            setToDelete(null);
+          }
+        }}
+      >
+        <AlertDialogContent className="border-white/[0.09] bg-[#0D0D10] text-white sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-base font-semibold tracking-[-0.015em]">
+              Delete this workflow?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-sm leading-6 text-white/45">
+              <span className="font-medium text-white/80">
+                {toDelete?.name}
+              </span>{" "}
+              will be permanently
+              removed. This can&apos;t be
+              undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {removeMutation.isError && (
+            <p
+              role="alert"
+              className="rounded-lg border border-red-400/20 bg-red-400/[0.06] px-3 py-2 text-xs text-red-300"
+            >
+              Couldn&apos;t delete the
+              workflow. Try again.
+            </p>
+          )}
+
+          <AlertDialogFooter className="gap-2 sm:gap-2">
+            <AlertDialogCancel
+              disabled={
+                removeMutation.isPending
+              }
+              className="mt-0 border-white/[0.09] bg-transparent text-white/70 hover:bg-white/[0.05] hover:text-white"
+            >
+              Cancel
+            </AlertDialogCancel>
+
+            <AlertDialogAction
+              disabled={
+                removeMutation.isPending
+              }
+              onClick={event => {
+                event.preventDefault();
+                if (toDelete) {
+                  removeMutation.mutate(
+                    toDelete.id,
+                  );
+                }
+              }}
+              className="gap-2 border border-red-400/25 bg-red-500/15 text-red-300 shadow-none hover:bg-red-500/25 hover:text-red-200"
+            >
+              {removeMutation.isPending && (
+                <Loader2 className="size-4 animate-spin" />
+              )}
+              Delete workflow
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </main>
   );
 }
@@ -397,7 +522,7 @@ function OverviewMetric({
   detail: string;
 }) {
   return (
-    <div className="min-h-[94px] border-r border-b border-white/[0.05] px-4 py-3.5 last:border-r-0 sm:border-b-0">
+    <div className="min-h-[94px] border-r border-white/[0.05] px-4 py-3.5 last:border-r-0">
       <p className="text-[9px] font-medium uppercase tracking-[0.1em] text-white/23">
         {label}
       </p>
@@ -432,125 +557,153 @@ function OverviewMetric({
 
 function WorkflowCard({
   workflow,
+  onDelete,
 }: {
-  workflow: {
-    id: string;
-    name: string;
-    description?: string | null;
-    status: string;
-    updatedAt?: string | null;
-  };
+  workflow: WorkflowItem;
+  onDelete: () => void;
 }) {
   const published =
     workflow.status === "PUBLISHED";
 
   return (
-    <Card
+    <article
       className={cn(
-        "group relative h-full min-h-[176px] overflow-hidden rounded-xl",
-        "border border-white/[0.065]",
-        "bg-[#0D0D10]",
-        "shadow-none",
-        "transition-[border-color,background-color,box-shadow,transform] duration-200",
-        "hover:border-indigo-400/18",
-        "hover:bg-[#0F0F12]",
-        "hover:shadow-[0_18px_45px_rgba(0,0,0,0.26)]",
+        "group relative flex h-full min-h-[184px] flex-col overflow-hidden rounded-xl",
+        "border border-white/[0.07] bg-[#0D0D10]",
+        "transition-[border-color,background-color,box-shadow] duration-200",
+        "hover:border-white/[0.14] hover:bg-[#0F0F12]",
+        "hover:shadow-[0_18px_45px_rgba(0,0,0,0.3)]",
+        "focus-within:border-white/20",
       )}
     >
-      {/* subtle top accent */}
-      <div
-        className={cn(
-          "absolute inset-x-0 top-0 h-px opacity-0 transition-opacity duration-200 group-hover:opacity-100",
-          published
-            ? "bg-emerald-400/45"
-            : "bg-white/15",
-        )}
+      {/* Whole card is clickable; the menu sits above this link */}
+      <Link
+        href={`/workflows/${workflow.id}`}
+        aria-label={`Open ${workflow.name}`}
+        className="absolute inset-0 z-0 rounded-xl focus-visible:outline-none"
       />
 
-      <CardContent className="relative flex h-full flex-col p-4">
-        {/* TOP */}
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            <h3 className="truncate text-[14px] font-medium tracking-[-0.015em] text-white/90 transition-colors group-hover:text-white">
-              {workflow.name}
-            </h3>
+      {/* Top: identity */}
+      <div className="pointer-events-none relative z-[1] flex flex-1 flex-col p-4 pb-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-[#111114] transition-colors group-hover:border-white/[0.14]">
+              <Workflow className="size-4 text-white/45 transition-colors group-hover:text-white/75" />
+            </div>
 
-            {workflow.description ? (
-              <p className="mt-1.5 line-clamp-2 max-w-[92%] text-[11px] leading-[1.55] text-white/30">
-                {workflow.description}
-              </p>
-            ) : (
-              <p className="mt-1.5 text-[11px] text-white/18">
-                Automation workflow
-              </p>
-            )}
+            <div className="min-w-0">
+              <h3 className="truncate text-[15px] font-medium tracking-[-0.015em] text-white/90 group-hover:text-white">
+                {workflow.name}
+              </h3>
+
+              <div className="mt-1 flex items-center gap-1.5">
+                <span
+                  className={cn(
+                    "size-1.5 rounded-full",
+                    published
+                      ? "bg-emerald-400"
+                      : "bg-amber-400",
+                  )}
+                />
+                <span
+                  className={cn(
+                    "text-[11px] font-medium",
+                    published
+                      ? "text-emerald-300/80"
+                      : "text-amber-300/75",
+                  )}
+                >
+                  {published
+                    ? "Published"
+                    : "Draft"}
+                </span>
+              </div>
+            </div>
           </div>
 
-          <StatusBadge
-            status={workflow.status}
+          <span
+            aria-hidden
+            className="size-7 shrink-0"
           />
         </div>
 
-        {/* SPACER */}
-        <div className="flex-1" />
+        <p
+          className={cn(
+            "mt-3.5 line-clamp-2 text-[12.5px] leading-[1.6]",
+            workflow.description
+              ? "text-white/45"
+              : "text-white/25",
+          )}
+        >
+          {workflow.description ||
+            "No description added."}
+        </p>
+      </div>
 
-        {/* FOOTER */}
-        <div className="border-t border-white/[0.045] pt-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-1.5">
-              <Calendar className="size-3 shrink-0 text-white/18" />
-
-              <span className="truncate text-[10px] text-white/22">
-                {formatUpdatedAt(
-                  workflow.updatedAt,
-                )}
-              </span>
-            </div>
-
-            <span className="flex shrink-0 items-center gap-1 text-[10px] text-white/20 transition-colors group-hover:text-indigo-300/65">
-              Open
-              <ArrowUpRight className="size-3 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
-            </span>
-          </div>
+      {/* Footer */}
+      <div className="pointer-events-none relative z-[1] flex items-center justify-between gap-3 border-t border-white/[0.06] bg-white/[0.012] px-4 py-3">
+        <div className="flex min-w-0 items-center gap-1.5 text-white/35">
+          <Calendar className="size-3 shrink-0" />
+          <span className="truncate text-[11.5px]">
+            {formatUpdatedAt(
+              workflow.updatedAt,
+            )}
+          </span>
         </div>
-      </CardContent>
-    </Card>
+
+        <span className="flex shrink-0 items-center gap-1 text-[11.5px] font-medium text-white/40 transition-colors group-hover:text-white">
+          Open
+          <ArrowUpRight className="size-3 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+        </span>
+      </div>
+
+      {/* Actions */}
+      <div className="absolute right-3 top-3 z-10">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label={`Actions for ${workflow.name}`}
+              className="flex size-7 items-center justify-center rounded-md border border-transparent text-white/35 transition-colors hover:border-white/[0.09] hover:bg-white/[0.06] hover:text-white focus-visible:border-white/25 focus-visible:outline-none data-[state=open]:border-white/[0.09] data-[state=open]:bg-white/[0.06] data-[state=open]:text-white"
+            >
+              <MoreHorizontal className="size-4" />
+            </button>
+          </DropdownMenuTrigger>
+
+          <DropdownMenuContent
+            align="end"
+            className="w-44 border-white/[0.09] bg-[#0D0D10] text-white"
+          >
+            <DropdownMenuItem
+              asChild
+              className="cursor-pointer text-white/80 focus:bg-white/[0.06] focus:text-white"
+            >
+              <Link
+                href={`/workflows/${workflow.id}`}
+              >
+                <ArrowUpRight className="mr-2 size-4 text-white/45" />
+                Open workflow
+              </Link>
+            </DropdownMenuItem>
+
+            <DropdownMenuSeparator className="bg-white/[0.07]" />
+
+            <DropdownMenuItem
+              onSelect={onDelete}
+              className="cursor-pointer text-red-300 focus:bg-red-500/10 focus:text-red-200"
+            >
+              <Trash2 className="mr-2 size-4" />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </article>
   );
 }
 
 /* ==========================================================================
-   STATUS
-============================================================================ */
-
-function StatusBadge({
-  status,
-}: {
-  status: string;
-}) {
-  const published =
-    status === "PUBLISHED";
-
-  return (
-    <Badge
-      variant="outline"
-      className={cn(
-        "shrink-0 rounded-md border px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.06em]",
-        published
-          ? "border-emerald-400/14 bg-emerald-400/[0.045] text-emerald-300/65"
-          : "border-amber-400/10 bg-amber-400/[0.03] text-amber-300/50",
-      )}
-    >
-      <span className="mr-1 inline-block size-1 rounded-full bg-current align-middle opacity-70" />
-
-      {published
-        ? "Published"
-        : "Draft"}
-    </Badge>
-  );
-}
-
-/* ==========================================================================
-   EMPTY STATE
+   EMPTY
 ============================================================================ */
 
 function EmptyState({
@@ -617,34 +770,29 @@ function WorkflowGridSkeleton() {
       {Array.from(
         { length: 6 },
         (_, index) => (
-          <Card
+          <div
             key={index}
-            className="min-h-[176px] rounded-xl border-white/[0.065] bg-[#0D0D10]"
+            className="flex min-h-[184px] flex-col overflow-hidden rounded-xl border border-white/[0.07] bg-[#0D0D10]"
           >
-            <CardContent className="flex h-full flex-col p-4">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0 flex-1">
+            <div className="flex-1 p-4 pb-3">
+              <div className="flex items-center gap-3">
+                <Skeleton className="size-9 rounded-lg bg-white/[0.05]" />
+
+                <div>
                   <Skeleton className="h-4 w-32 bg-white/[0.05]" />
-
-                  <Skeleton className="mt-2.5 h-3 w-48 bg-white/[0.035]" />
-
-                  <Skeleton className="mt-1.5 h-3 w-36 bg-white/[0.03]" />
-                </div>
-
-                <Skeleton className="h-5 w-16 rounded-md bg-white/[0.04]" />
-              </div>
-
-              <div className="flex-1" />
-
-              <div className="border-t border-white/[0.045] pt-3">
-                <div className="flex items-center justify-between">
-                  <Skeleton className="h-3 w-20 bg-white/[0.035]" />
-
-                  <Skeleton className="h-3 w-10 bg-white/[0.03]" />
+                  <Skeleton className="mt-2 h-3 w-16 bg-white/[0.035]" />
                 </div>
               </div>
-            </CardContent>
-          </Card>
+
+              <Skeleton className="mt-4 h-3 w-full bg-white/[0.035]" />
+              <Skeleton className="mt-1.5 h-3 w-2/3 bg-white/[0.03]" />
+            </div>
+
+            <div className="flex items-center justify-between border-t border-white/[0.06] px-4 py-3">
+              <Skeleton className="h-3 w-24 bg-white/[0.035]" />
+              <Skeleton className="h-3 w-10 bg-white/[0.03]" />
+            </div>
+          </div>
         ),
       )}
     </div>
@@ -668,12 +816,12 @@ function formatUpdatedAt(
     return "No recent update";
   }
 
-  return date.toLocaleDateString(
+  return `Updated ${date.toLocaleDateString(
     undefined,
     {
       month: "short",
       day: "numeric",
       year: "numeric",
     },
-  );
+  )}`;
 }

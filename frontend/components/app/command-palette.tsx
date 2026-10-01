@@ -118,10 +118,27 @@ export function CommandPalette({
           <div className="flex items-center gap-2 border-b border-white/[0.08] px-3">
             <Search className="size-4 shrink-0 text-white/40" />
             <Command.Input
-              autoFocus
-              placeholder="Search workflows, agents, templates…"
-              className="h-11 w-full bg-transparent text-sm text-white/80 outline-none placeholder:text-white/30"
-            />
+  autoFocus
+  placeholder="Search workflows, agents, templates…"
+  className="
+    h-11
+    w-full
+    border-0
+    bg-transparent
+    text-sm
+    text-white/80
+    placeholder:text-white/30
+    outline-none
+    ring-0
+    shadow-none
+    focus:outline-none
+    focus:ring-0
+    focus:ring-offset-0
+    focus-visible:outline-none
+    focus-visible:ring-0
+    focus-visible:ring-offset-0
+  "
+/>
           </div>
 
           <Command.List className="overflow-y-auto p-1">

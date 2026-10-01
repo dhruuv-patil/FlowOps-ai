@@ -34,13 +34,13 @@ import { Skeleton } from "@/components/ui/skeleton";
    ========================================================================== */
 
 /**
- * FlowOps uses a left-to-right React Flow canvas:
+ * Trace.run uses a left-to-right React Flow canvas:
  *
  *   Trigger → Step → Step → Step
  *
  * AI providers can return nodes with their own positions, often stacked
  * vertically. Before saving an AI-generated graph, normalize its positions
- * into the same horizontal layout used by the FlowOps workflow builder.
+ * into the same horizontal layout used by the Trace.run workflow builder.
  */
 function layoutGraphHorizontally(graph: any) {
   if (
@@ -59,7 +59,7 @@ function layoutGraphHorizontally(graph: any) {
 
   /*
    * These values are intentionally close to the spacing used by the
-   * FlowOps horizontal builder.
+   * Trace.run horizontal builder.
    */
   const NODE_X_GAP = 220;
   const NODE_Y_GAP = 150;
@@ -581,7 +581,7 @@ export default function HomePage() {
          * IMPORTANT:
          *
          * The AI service can return nodes with vertical positions.
-         * The FlowOps builder uses a horizontal left-to-right layout.
+         * The Trace.run builder uses a horizontal left-to-right layout.
          *
          * Normalize the graph BEFORE saving it so the workflow opens
          * horizontally in the existing builder.
@@ -601,7 +601,7 @@ export default function HomePage() {
         );
       } catch {
         setError(
-          "The workflow was generated, but FlowOps could not open it in the builder.",
+          "The workflow was generated, but Trace.run could not open it in the builder.",
         );
       } finally {
         setOpeningBuilder(false);
@@ -667,7 +667,7 @@ export default function HomePage() {
         </h1>
 
         <p className="mt-2 max-w-xl text-sm leading-6 text-white/40">
-          Describe what you want to automate and FlowOps will turn it into a
+          Describe what you want to automate and Trace.run will turn it into a
           workflow.
         </p>
       </section>

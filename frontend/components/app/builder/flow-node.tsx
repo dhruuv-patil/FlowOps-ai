@@ -2,561 +2,214 @@
 
 import * as React from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { Check, Clock3, Loader2, X, Zap } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import type { NodeDefinition } from "@/types";
 import {
   ErrorNodesContext,
-  resolveIcon,
   type FlowNodeData,
 } from "@/components/app/builder/shared";
+import {
+  NodeIcon,
+  resolveAccent,
+} from "@/components/app/builder/node-visuals";
 
 export const NodeDefsContext = React.createContext<
   Record<string, NodeDefinition>
 >({});
 
-/* ==========================================================================
-   theSVG BRAND REGISTRY
-   ========================================================================== */
-
-const THESVG_SLUGS: Record<string, string> = {
-  // Automation
-  n8n: "n8n",
-  make: "make",
-  zapier: "zapier",
-  temporal: "temporal",
-
-  // Developer
-  github: "github",
-  githubactions: "github-actions",
-  "github-actions": "github-actions",
-  gitlab: "gitlab",
-  vercel: "vercel",
-  sentry: "sentry",
-  pagerduty: "pagerduty",
-  linear: "linear",
-  jira: "jira",
-  asana: "asana",
-
-  // CRM
-  hubspot: "hubspot",
-  salesforce: "salesforce",
-  pipedrive: "pipedrive",
-
-  // Communication
-  slack: "slack",
-  discord: "discord",
-  teams: "microsoft-teams",
-  "microsoft-teams": "microsoft-teams",
-  telegram: "telegram",
-  twilio: "twilio",
-
-  // Email
-  gmail: "gmail",
-  sendgrid: "sendgrid",
-  resend: "resend",
-
-  // Productivity
-  notion: "notion",
-  "google-sheets": "google-sheets",
-  googlesheets: "google-sheets",
-
-  // Payments
-  stripe: "stripe",
-
-  // AI
-  openai: "openai",
-  anthropic: "anthropic",
-
-  // Cloud / storage
-  aws: "aws",
-  s3: "amazon-s3",
-  "aws-s3": "amazon-s3",
+const STATUS_BADGES: Record<
+  string,
+  { icon: React.ElementType; className: string; spin?: boolean }
+> = {
+  SUCCEEDED: { icon: Check, className: "bg-emerald-500" },
+  FAILED: { icon: X, className: "bg-red-500" },
+  RUNNING: { icon: Loader2, className: "bg-indigo-500", spin: true },
+  WAITING: { icon: Clock3, className: "bg-blue-500" },
+  QUEUED: { icon: Clock3, className: "bg-amber-500" },
 };
-
-function normalize(value?: string) {
-  return (value ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/[\s./-]+/g, "_");
-}
-
-/**
- * Resolve a brand from the actual node identity.
- *
- * `def.icon` is intentionally only the fallback because the backend
- * stores Lucide names there, e.g. GitBranch, UserPlus, Upload.
- */
-function resolveTheSvgSlug(
-  type?: string,
-  label?: string,
-): string | null {
-  const values = [normalize(type), normalize(label)].filter(Boolean);
-
-  for (const value of values) {
-    /* ---------------------------------------------------------------
-       Specific integrations first
-       --------------------------------------------------------------- */
-
-    if (
-      value.includes("github_actions") ||
-      value.includes("githubactions")
-    ) {
-      return THESVG_SLUGS.githubactions;
-    }
-
-    if (
-      value.includes("google_sheets") ||
-      value.includes("googlesheets")
-    ) {
-      return THESVG_SLUGS["google-sheets"];
-    }
-
-    if (
-      value.includes("microsoft_teams") ||
-      value.includes("ms_teams") ||
-      value === "teams"
-    ) {
-      return THESVG_SLUGS.teams;
-    }
-
-    if (
-      value === "s3" ||
-      value.startsWith("s3_") ||
-      value.includes("_s3_") ||
-      value.includes("aws_s3")
-    ) {
-      return THESVG_SLUGS.s3;
-    }
-
-    /* ---------------------------------------------------------------
-       Provider matching
-       --------------------------------------------------------------- */
-
-    if (value.includes("salesforce")) {
-      return THESVG_SLUGS.salesforce;
-    }
-
-    if (value.includes("pagerduty")) {
-      return THESVG_SLUGS.pagerduty;
-    }
-
-    if (value.includes("github")) {
-      return THESVG_SLUGS.github;
-    }
-
-    if (value.includes("gitlab")) {
-      return THESVG_SLUGS.gitlab;
-    }
-
-    if (value.includes("vercel")) {
-      return THESVG_SLUGS.vercel;
-    }
-
-    if (value.includes("sentry")) {
-      return THESVG_SLUGS.sentry;
-    }
-
-    if (value.includes("linear")) {
-      return THESVG_SLUGS.linear;
-    }
-
-    if (value.includes("jira")) {
-      return THESVG_SLUGS.jira;
-    }
-
-    if (value.includes("asana")) {
-      return THESVG_SLUGS.asana;
-    }
-
-    if (value.includes("hubspot")) {
-      return THESVG_SLUGS.hubspot;
-    }
-
-    if (value.includes("pipedrive")) {
-      return THESVG_SLUGS.pipedrive;
-    }
-
-    if (value.includes("slack")) {
-      return THESVG_SLUGS.slack;
-    }
-
-    if (value.includes("discord")) {
-      return THESVG_SLUGS.discord;
-    }
-
-    if (value.includes("telegram")) {
-      return THESVG_SLUGS.telegram;
-    }
-
-    if (value.includes("twilio")) {
-      return THESVG_SLUGS.twilio;
-    }
-
-    if (value.includes("sendgrid")) {
-      return THESVG_SLUGS.sendgrid;
-    }
-
-    if (value.includes("resend")) {
-      return THESVG_SLUGS.resend;
-    }
-
-    if (value.includes("gmail")) {
-      return THESVG_SLUGS.gmail;
-    }
-
-    if (value.includes("notion")) {
-      return THESVG_SLUGS.notion;
-    }
-
-    if (
-      value.includes("google_sheets") ||
-      value.includes("googlesheets")
-    ) {
-      return THESVG_SLUGS["google-sheets"];
-    }
-
-    if (value.includes("stripe")) {
-      return THESVG_SLUGS.stripe;
-    }
-
-    if (value.includes("openai")) {
-      return THESVG_SLUGS.openai;
-    }
-
-    if (value.includes("anthropic")) {
-      return THESVG_SLUGS.anthropic;
-    }
-
-    if (value.includes("n8n")) {
-      return THESVG_SLUGS.n8n;
-    }
-
-    if (value.includes("zapier")) {
-      return THESVG_SLUGS.zapier;
-    }
-
-    if (value.includes("make")) {
-      return THESVG_SLUGS.make;
-    }
-
-    if (value.includes("temporal")) {
-      return THESVG_SLUGS.temporal;
-    }
-
-    if (value.includes("aws")) {
-      return THESVG_SLUGS.aws;
-    }
-  }
-
-  return null;
-}
-
-/* ==========================================================================
-   ICON
-   ========================================================================== */
-
-function NodeIcon({
-  type,
-  label,
-  icon,
-  className,
-}: {
-  type?: string;
-  label?: string;
-  icon?: string;
-  className?: string;
-}) {
-  const [failed, setFailed] = React.useState(false);
-
-  const slug = React.useMemo(
-    () => resolveTheSvgSlug(type, label),
-    [type, label],
-  );
-
-  React.useEffect(() => {
-    setFailed(false);
-  }, [slug]);
-
-  /*
-   * Real brand logo from thesvg.org.
-   *
-   * Example:
-   * https://thesvg.org/icons/github/default.svg
-   */
-  if (slug && !failed) {
-    return (
-      <img
-        src={`https://thesvg.org/icons/${slug}/default.svg`}
-        alt=""
-        aria-hidden="true"
-        draggable={false}
-        className={cn("object-contain", className)}
-        onError={() => setFailed(true)}
-      />
-    );
-  }
-
-  /* Generic FlowOps node → Lucide */
-  const FallbackIcon = resolveIcon(icon);
-
-  return (
-    <FallbackIcon
-      className={className}
-      aria-hidden="true"
-    />
-  );
-}
 
 /* ==========================================================================
    NODE
    ========================================================================== */
 
-function FlowNodeComponent({
-  id,
-  type,
-  data,
-  selected,
-}: NodeProps) {
+function FlowNodeComponent({ id, type, data, selected }: NodeProps) {
   const defs = React.useContext(NodeDefsContext);
   const errorNodes = React.useContext(ErrorNodesContext);
 
   const def = type ? defs[type] : undefined;
   const nodeData = data as FlowNodeData;
 
-  const label =
-    nodeData.label ||
-    def?.label ||
-    type ||
-    "Node";
+  const label = nodeData.label || def?.label || type || "Node";
 
-  const outputs =
-    def?.outputs?.length
-      ? def.outputs
-      : ["out"];
+  const outputs = def?.outputs?.length ? def.outputs : ["out"];
 
   const isTrigger = def?.trigger ?? false;
   const hasError = errorNodes.has(id);
   const multiOut = outputs.length > 1;
 
+  const accent = resolveAccent(def?.category, isTrigger);
+  const status = nodeData.executionStatus
+    ? STATUS_BADGES[nodeData.executionStatus as string]
+    : undefined;
+  const isRunning = nodeData.executionStatus === "RUNNING";
+
+  // Grow the node so multiple output ports have room
+  const bodyMinHeight = Math.max(88, outputs.length * 30 + 20);
+
   const handleClass = cn(
-    "!size-[9px]",
-    "!rounded-full",
-    "!border-[2px]",
-    "!border-[#050505]",
-    "!bg-[#8b8b8b]",
-    "!shadow-[0_0_0_1px_rgba(255,255,255,0.10),0_1px_4px_rgba(0,0,0,0.55)]",
+    "!size-[10px] !rounded-full !border-2 !border-[#0a0a0a]",
+    "!bg-[#6f6f78]",
+    "!shadow-[0_0_0_1px_rgba(255,255,255,0.12)]",
     "transition-all duration-150",
-    "hover:!scale-[1.18]",
-    "group-hover:!bg-brand-400",
+    // larger invisible hit area, easier to connect
+    "after:absolute after:-inset-2 after:content-['']",
+    "hover:!scale-125 hover:!bg-brand-400",
+    "group-hover:!bg-[#9a9aa5]",
     selected && "!bg-brand-400",
     hasError && "!bg-red-400",
   );
 
   return (
     <div className="group relative flex w-[132px] flex-col items-center">
-
       {/* ================================================================
           NODE BODY
           ================================================================ */}
 
       <div
+        style={{ minHeight: bodyMinHeight }}
         className={cn(
-  "relative flex size-[92px] shrink-0 items-center justify-center",
-  "rounded-[14px]",
-  "border border-white/[0.10]",
-  "bg-[#111111]",
-  "shadow-[0_4px_18px_rgba(0,0,0,0.28)]",
-  "transition-all duration-150",
+          "relative flex w-[88px] shrink-0 items-center justify-center",
+          "rounded-[10px]",
+          isTrigger && "rounded-l-[28px]",
+          "border border-white/[0.09]",
+          "bg-gradient-to-b from-[#18181b] to-[#101012]",
+          "shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_6px_20px_rgba(0,0,0,0.35)]",
+          "transition-all duration-150",
 
-  "group-hover:-translate-y-[1px]",
-  "group-hover:border-white/[0.18]",
-  "group-hover:bg-[#141414]",
+          "group-hover:-translate-y-px",
+          "group-hover:border-white/[0.18]",
 
-  selected && [
-    "-translate-y-[1px]",
-    "border-brand-400/60",
-    "bg-[#141414]",
-    "shadow-[0_0_0_3px_rgba(99,102,241,0.10),0_8px_24px_rgba(0,0,0,0.32)]",
-  ],
+          selected && [
+            "-translate-y-px border-brand-400/70",
+            "shadow-[0_0_0_3px_rgba(99,102,241,0.18),0_8px_24px_rgba(0,0,0,0.4)]",
+          ],
 
-  hasError && [
-    "!border-red-500",
-    "shadow-[0_0_0_1px_rgba(239,68,68,0.25),0_4px_18px_rgba(0,0,0,0.28)]",
-  ],
+          nodeData.executionStatus === "SUCCEEDED" &&
+            "border-emerald-400/50 shadow-[0_0_0_3px_rgba(52,211,153,0.10),0_6px_20px_rgba(0,0,0,0.35)]",
 
-  nodeData.executionStatus === "SUCCEEDED" && [
-    "!border-emerald-400",
-    "shadow-[0_0_0_1px_rgba(52,211,153,0.25),0_4px_18px_rgba(0,0,0,0.28)]",
-  ],
-)}
+          nodeData.executionStatus === "FAILED" &&
+            "border-red-400/60 shadow-[0_0_0_3px_rgba(248,113,113,0.12),0_6px_20px_rgba(0,0,0,0.35)]",
+
+          hasError &&
+            "!border-red-500 shadow-[0_0_0_3px_rgba(239,68,68,0.15),0_6px_20px_rgba(0,0,0,0.35)]",
+        )}
       >
+        {/* Running pulse ring */}
+        {isRunning && (
+          <span
+            aria-hidden="true"
+            className={cn(
+              "pointer-events-none absolute -inset-[4px] animate-pulse",
+              "rounded-[14px] border-2 border-indigo-400/60",
+              isTrigger && "rounded-l-[32px]",
+            )}
+          />
+        )}
 
-        {/* ================================================================
-            INPUT
-            ================================================================ */}
-
+        {/* Input handle */}
         {!isTrigger && (
           <Handle
             type="target"
             position={Position.Left}
-            className={cn(
-              handleClass,
-              "!left-[-6px]",
-              "!top-1/2",
-              "!-translate-y-1/2",
-              "!translate-x-0",
-            )}
+            className={handleClass}
           />
         )}
 
-        {/* Inner highlight */}
-        <div className="pointer-events-none absolute inset-[1px] rounded-[13px] border border-white/[0.025]" />
-
-        {/* ================================================================
-            REAL BRAND / GENERIC ICON
-            ================================================================ */}
-
-        <div
-          className={cn(
-            "relative flex size-[48px] items-center justify-center",
-            "rounded-xl",
-            "bg-white/[0.045]",
-            "text-white/80",
-            "transition-all duration-150",
-
-            "group-hover:bg-brand-500/10",
-            "group-hover:text-brand-400",
-
-            selected && "bg-brand-500/10 text-brand-400",
-            hasError && "bg-red-500/10 text-red-400",
-          )}
-        >
-          <NodeIcon
-            type={type}
-            label={label}
-            icon={def?.icon}
-            className="size-[30px] transition-transform duration-150 group-hover:scale-[1.04]"
-          />
-        </div>
-
-        {/* ================================================================
-            TRIGGER INDICATOR
-            ================================================================ */}
-
+        {/* Trigger bolt, outside the left edge like n8n */}
         {isTrigger && (
           <span
-            className="absolute -left-[5px] top-1/2 -translate-y-1/2"
             aria-hidden="true"
+            className="absolute -left-[22px] top-1/2 -translate-y-1/2 text-amber-400 drop-shadow-[0_0_6px_rgba(245,158,11,0.5)]"
           >
-            <span className="block size-[4px] rounded-full bg-brand-400 shadow-[0_0_8px_rgba(99,102,241,0.8)]" />
+            <Zap className="size-[14px] fill-current" />
           </span>
         )}
 
-        {/* ================================================================
-            ERROR
-            ================================================================ */}
+        <NodeIcon
+          type={type}
+          label={label}
+          icon={def?.icon}
+          accent={accent}
+        />
 
-        {hasError && (
+        {/* Corner badge: validation error beats execution status */}
+        {hasError ? (
           <span
-            className={cn(
-              "absolute -right-[5px] -top-[5px]",
-              "flex size-[16px] items-center justify-center",
-              "rounded-full",
-              "border-2 border-[#050505]",
-              "bg-red-500",
-              "text-[9px] font-bold text-white",
-              "shadow-[0_0_10px_rgba(239,68,68,0.45)]",
-            )}
+            className="absolute -right-[7px] -top-[7px] flex size-[18px] items-center justify-center rounded-full border-2 border-[#0a0a0a] bg-red-500 text-[10px] font-bold text-white"
             aria-label="Validation error"
           >
             !
           </span>
-        )}
+        ) : status ? (
+          <span
+            className={cn(
+              "absolute -right-[7px] -top-[7px] flex size-[18px] items-center justify-center",
+              "rounded-full border-2 border-[#0a0a0a] text-white",
+              status.className,
+            )}
+          >
+            <status.icon
+              className={cn("size-[10px]", status.spin && "animate-spin")}
+              strokeWidth={3}
+            />
+          </span>
+        ) : null}
 
-        {/* ================================================================
-            SINGLE OUTPUT
-            ================================================================ */}
-
+        {/* Single output */}
         {!multiOut && (
           <Handle
             id={outputs[0]}
             type="source"
             position={Position.Right}
-            className={cn(
-              handleClass,
-              "!right-[-6px]",
-              "!left-auto",
-              "!top-1/2",
-              "!-translate-y-1/2",
-              "!translate-x-0",
-            )}
+            className={handleClass}
           />
         )}
 
-        {/* ================================================================
-            MULTIPLE OUTPUTS
-            ================================================================ */}
-
-        {multiOut && (
-          <div
-            className={cn(
-              "pointer-events-none absolute",
-              "right-[-6px]",
-              "top-1/2",
-              "-translate-y-1/2",
-              "flex flex-col gap-3",
-            )}
-          >
-            {outputs.map((out) => (
-              <div
-                key={out}
-                className="relative flex h-[14px] items-center"
+        {/* Multiple outputs: evenly spaced, labels outside */}
+        {multiOut &&
+          outputs.map((out, index) => (
+            <Handle
+              key={out}
+              id={out}
+              type="source"
+              position={Position.Right}
+              style={{ top: `${((index + 1) / (outputs.length + 1)) * 100}%` }}
+              className={handleClass}
+            >
+              <span
+                className={cn(
+                  "pointer-events-none absolute left-[18px] top-1/2 -translate-y-1/2",
+                  "rounded bg-[#0a0a0a] px-1 py-px",
+                  "whitespace-nowrap text-[9px] font-medium leading-none",
+                  "text-white/40 transition-colors group-hover:text-white/65",
+                )}
               >
-                {/* Output label */}
-                <span
-                  className={cn(
-                    "pointer-events-none absolute right-[14px]",
-                    "whitespace-nowrap",
-                    "text-[9px] font-medium leading-none",
-                    "text-white/35",
-                    "transition-colors",
-                    "group-hover:text-white/55",
-                  )}
-                >
-                  {out}
-                </span>
-
-                {/* Output handle */}
-                <Handle
-                  id={out}
-                  type="source"
-                  position={Position.Right}
-                  className={cn(
-                    handleClass,
-                    "!right-[-1px]",
-                    "!left-auto",
-                    "!top-1/2",
-                    "!-translate-y-1/2",
-                    "!translate-x-0",
-                    "!pointer-events-auto",
-                  )}
-                />
-              </div>
-            ))}
-          </div>
-        )}
+                {out}
+              </span>
+            </Handle>
+          ))}
       </div>
 
       {/* ================================================================
           LABEL
           ================================================================ */}
 
-      <div className="mt-2 w-[132px] text-center">
+      <div className="mt-2.5 w-[132px] text-center">
         <div
           className={cn(
-            "truncate text-[13px] font-medium leading-5",
-            "text-white/85",
+            "truncate text-[13px] font-medium leading-5 text-white/85",
             selected && "text-white",
             hasError && "text-red-300",
           )}
@@ -566,11 +219,7 @@ function FlowNodeComponent({
         </div>
 
         <div
-          className={cn(
-            "mt-[1px] truncate",
-            "text-[9px] font-medium uppercase tracking-[0.12em]",
-            "text-white/25",
-          )}
+          className="mt-px truncate text-[9px] font-medium uppercase tracking-[0.12em] text-white/25"
           title={def?.category ?? type}
         >
           {def?.category ?? type}

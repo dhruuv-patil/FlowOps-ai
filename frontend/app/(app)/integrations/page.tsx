@@ -962,7 +962,7 @@ export default function IntegrationsPage() {
 
   return (
     <div className="relative min-h-full overflow-hidden">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-80 bg-[radial-gradient(circle_at_50%_-20%,rgba(255,255,255,0.075),transparent_58%)]" />
+      
 
       <div className="relative mx-auto max-w-[1400px] space-y-7 px-5 py-7 sm:px-7 lg:px-8 lg:py-9">
         {/* Header */}

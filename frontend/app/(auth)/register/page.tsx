@@ -116,7 +116,7 @@ function RegisterPageContent() {
     <div className="w-full">
       <div className="mb-8 text-center">
         <h1 className="text-[30px] font-semibold tracking-[-0.035em] text-foreground sm:text-[32px]">
-          Create your FlowOps account
+          Create your Trace.run account
         </h1>
 
         <p className="mt-2 text-sm text-muted-foreground">

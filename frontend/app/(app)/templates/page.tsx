@@ -883,7 +883,7 @@ export default function TemplatesPage() {
                     </h2>
 
                     <p className="mt-1 text-xs text-white/25">
-                      Browse the complete FlowOps
+                      Browse the complete Trace.run
                       template library.
                     </p>
                   </div>
@@ -1186,7 +1186,7 @@ function LandingIntegrationIcon({
   }
 
   /*
-   * FlowOps-native nodes do NOT pretend to be
+   * Trace.run-native nodes do NOT pretend to be
    * third-party brands.
    */
 

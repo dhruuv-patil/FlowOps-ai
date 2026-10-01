@@ -1,15 +1,22 @@
 import type { Metadata } from "next";
+
 import "./globals.css";
 import { Providers } from "@/components/providers";
 
 export const metadata: Metadata = {
   title: {
-    default: "FlowOps — Build workflows. Let AI run the work.",
-    template: "%s · FlowOps",
+    default: "Trace.run — Build workflows. Let AI run the work.",
+    template: "%s · Trace.run",
   },
   description:
-    "FlowOps is a visual automation platform for building, executing, and monitoring intelligent AI workflows.",
+    "Trace.run is a visual automation platform for building, executing, and monitoring intelligent AI workflows.",
   metadataBase: new URL("http://localhost:3000"),
+
+  icons: {
+    icon: "/logo-mark.svg",
+    shortcut: "/logo-mark.svg",
+    apple: "/logo-mark.svg",
+  },
 };
 
 export default function RootLayout({

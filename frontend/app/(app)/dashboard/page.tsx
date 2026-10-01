@@ -442,54 +442,39 @@ export default function DashboardPage() {
               WORKFLOW HEALTH
           ============================================================== */}
 
-          <Reveal
-            delay={0.06}
-            distance={10}
-          >
-            <Card className="overflow-hidden rounded-xl border-white/[0.065] bg-[#0D0D10] shadow-none">
-              <CardContent className="p-0">
+          <Reveal delay={0.06} distance={10}>
+  <Card className="flex h-full flex-col overflow-hidden rounded-xl border-white/[0.065] bg-[#0D0D10] shadow-none">
+    <CardContent className="flex flex-1 flex-col p-0">
 
-                <div className="flex items-center justify-between border-b border-white/[0.055] px-5 py-4">
-                  <div>
-                    <h2 className="text-sm font-medium text-white/80">
-                      Workflow health
-                    </h2>
+      <div className="flex items-center justify-between border-b border-white/[0.055] px-5 py-4">
+        <div>
+          <h2 className="text-sm font-medium text-white/80">
+            Workflow health
+          </h2>
+          <p className="mt-1 text-[11px] text-white/28">
+            Executions and failures over time
+          </p>
+        </div>
 
-                    <p className="mt-1 text-[11px] text-white/28">
-                      Executions and failures
-                      over time
-                    </p>
-                  </div>
+        <div className="flex items-center gap-4">
+          <ChartLegend label="Runs" color="bg-indigo-400" />
+          <ChartLegend label="Failed" color="bg-red-400" />
+        </div>
+      </div>
 
-                  <div className="flex items-center gap-4">
-                    <ChartLegend
-                      label="Runs"
-                      color="bg-indigo-400"
-                    />
-
-                    <ChartLegend
-                      label="Failed"
-                      color="bg-red-400"
-                    />
-                  </div>
-                </div>
-
-                <div className="relative h-[300px] px-4 pb-5 pt-5 sm:px-5">
-                  {statsQuery.isPending ? (
-                    <ChartSkeleton />
-                  ) : series.length ===
-                    0 ? (
-                    <EmptyChart />
-                  ) : (
-                    <ExecutionChart
-                      chart={chart}
-                    />
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </Reveal>
-
+      {/* was: relative h-[300px] */}
+      <div className="relative min-h-[300px] flex-1 px-4 pb-5 pt-5 sm:px-5">
+        {statsQuery.isPending ? (
+          <ChartSkeleton />
+        ) : series.length === 0 ? (
+          <EmptyChart />
+        ) : (
+          <ExecutionChart chart={chart} />
+        )}
+      </div>
+    </CardContent>
+  </Card>
+</Reveal>
           {/* ==============================================================
               RELIABILITY
           ============================================================== */}
@@ -614,7 +599,7 @@ export default function DashboardPage() {
           </span>
 
           <span className="font-mono text-[9px] uppercase tracking-[0.13em] text-white/12">
-            FLOWOPS / EXECUTION CONTROL
+            Trace.run / EXECUTION CONTROL
           </span>
         </div>
       </div>

@@ -12,7 +12,7 @@ import { Logo } from "@/components/brand/logo";
 const tabs = [
   { label: 'Build', heading: 'Build workflows without the guesswork.', copy: 'Compose triggers, actions, branches, and services in one visual workflow builder — then ship them with confidence.' },
   { label: 'Monitor', heading: 'One source of truth for workflow health.', copy: 'See what is running, what is slowing down, and where reliability is trending across your automation stack.' },
-  { label: 'Detect', heading: 'Catch drift before it spreads.', copy: 'FlowOps learns your baseline and surfaces anomalies while there is still time to act.' },
+  { label: 'Detect', heading: 'Catch drift before it spreads.', copy: 'Trace.run learns your baseline and surfaces anomalies while there is still time to act.' },
   { label: 'Diagnose', heading: 'Turn failures into fixes.', copy: 'Trace the exact step, timing, and failure context behind every failed execution.' },
 ]
 const faqs = ['What is Trace.run?', 'Does Trace.run replace my workflow tools?', 'How quickly can I get started?', 'Can I export events to our existing stack?']
@@ -31,10 +31,101 @@ const integrationGroups = [
   { title: 'Developer tools', icon: GitBranch, items: ['GitHub', 'Linear', 'Vercel'] },
 ]
 const integrationCards = [
-  { title: 'Workflow platforms', items: [['n8n', 'n8n', '#EA4B71'], ['Zapier', 'zapier', '#FF4A00'], ['Make', 'make', '#6D00CC']] },
-  { title: 'Developer workflows', items: [['GitHub Actions', 'githubactions', '#2088FF'], ['Email / SMTP', '', '#EA4335']] },
-  { title: 'Team notifications', items: [['Slack', 'slack', '#36C5F0'], ['Discord', 'discord', '#5865F2'], ['Microsoft Teams', 'microsoftteams', '#6264A7']] },
-  { title: 'Universal connectivity', items: [['Webhooks', '', '#F59E0B'], ['HTTP APIs', '', '#22C55E']] },
+  {
+    title: 'Workflow automation',
+    items: [
+      ['n8n', 'n8n'],
+      ['Zapier', 'zapier'],
+      ['Make', 'make'],
+    ],
+  },
+  {
+    title: 'Orchestration',
+    items: [
+      ['Temporal', 'temporal'],
+      ['Airflow', 'apache-airflow'],
+      ['Dagster', 'dagster'],
+    ],
+  },
+  {
+    title: 'Cloud',
+    items: [
+      ['AWS', 'aws'],
+      ['Google Cloud', 'google-cloud'],
+      ['Azure', 'microsoft-azure'],
+    ],
+  },
+  {
+    title: 'Observability',
+    items: [
+      ['Datadog', 'datadog'],
+      ['Grafana', 'grafana'],
+      ['OpenTelemetry', 'opentelemetry'],
+    ],
+  },
+  {
+    title: 'Alerting & communication',
+    items: [
+      ['Slack', 'slack'],
+      ['PagerDuty', 'pagerduty'],
+      ['Discord', 'discord'],
+    ],
+  },
+  {
+    title: 'Developer tools',
+    items: [
+      ['GitHub', 'github'],
+      ['GitLab', 'gitlab'],
+      ['Vercel', 'vercel'],
+    ],
+  },
+  {
+    title: 'Project management',
+    items: [
+      ['Linear', 'linear'],
+      ['Jira', 'jira'],
+      ['Notion', 'notion'],
+    ],
+  },
+  {
+    title: 'Databases',
+    items: [
+      ['PostgreSQL', 'postgresql'],
+      ['Redis', 'redis'],
+      ['Supabase', 'supabase'],
+    ],
+  },
+  {
+    title: 'Security',
+    items: [
+      ['Sentry', 'sentry'],
+      ['Okta', 'okta'],
+      ['Cloudflare', 'cloudflare'],
+    ],
+  },
+  {
+    title: 'AI',
+    items: [
+      ['OpenAI', 'openai'],
+      ['Anthropic', 'anthropic'],
+      ['Hugging Face', 'hugging-face'],
+    ],
+  },
+  {
+    title: 'Payments',
+    items: [
+      ['Stripe', 'stripe'],
+      ['PayPal', 'paypal'],
+    ],
+  },
+  {
+    title: 'Email',
+    items: [
+      ['SendGrid', 'sendgrid'],
+      ['Resend', 'resend'],
+      ['Twilio', 'twilio'],
+    ],
+  },
 ]
 
 const securityItems = [
@@ -126,7 +217,7 @@ function Window({ children, image }: { children: React.ReactNode; image?: string
       style={image ? { backgroundImage: `url(${image})` } : undefined}
     >
       <div className="window">
-        <div className="window-bar"><i /><i /><i /><span>app.flowops.dev</span></div>
+        <div className="window-bar"><i /><i /><i /><span>app.Trace.run.dev</span></div>
         {children}
       </div>
     </div>
@@ -431,7 +522,7 @@ function DiagnosePanel() {
           <div className="rcp-core-copy">
             <span className="rcp-label">SYSTEM STATE</span>
             <strong>1 incident · 3 signals</strong>
-            <p>FlowOps connected the available execution signals so your team can investigate the failure faster.</p>
+            <p>Trace.run connected the available execution signals so your team can investigate the failure faster.</p>
             <div className="rcp-progress"><i /></div>
             <div className="rcp-mini-stats">
               <span><b>18</b> workflows</span>
@@ -462,7 +553,7 @@ function DiagnosePanel() {
         <div className="rcp-action">
           <div className="action-orbit"><span>✦</span></div>
           <div className="action-copy">
-            <span>FLOWOPS ACTION</span>
+            <span>Trace.run ACTION</span>
             <strong>Trace → detect → explain → act</strong>
             <p>Likely root cause: warehouse connection saturation.</p>
           </div>
@@ -1003,7 +1094,7 @@ export default function FlowOpsClean() {
                       ) : slug ? (
                         <img
                           className="integration-logo integration-logo-color"
-                          src={`https://cdn.simpleicons.org/${slug}/${(color || '#ffffff').replace('#', '')}`}
+                          src={`https://thesvg.org/icons/${slug}/default.svg`}
                           alt=""
                           aria-hidden="true"
                           loading="lazy"
